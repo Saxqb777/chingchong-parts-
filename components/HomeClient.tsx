@@ -2,16 +2,18 @@
 import { useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { motion } from 'framer-motion'
-import { Search, ArrowRight, Package, ChevronRight, MessageSquare, Zap } from 'lucide-react'
 
-type Brand = { id: string; name: string; nameZh: string; _count: { vehicles: number } }
-type Vehicle = { id: string; model: string; year: number; fuelType: string; brand: { name: string }; _count: { parts: number } }
+type Brand   = { id: string; name: string; nameZh: string; _count: { vehicles: number } }
+type Vehicle = { id: string; model: string; year: number; fuelType: string; engine: string | null; brand: { name: string }; _count: { parts: number } }
 
 interface Props { brands: Brand[]; recentVehicles: Vehicle[]; partCount: number }
 
+const FUEL_CLASS: Record<string, string> = {
+  Electric: 'fuel-ev', Hybrid: 'fuel-hybrid', Diesel: 'fuel-diesel', Petrol: 'fuel-petrol',
+}
+
 export default function HomeClient({ brands, recentVehicles, partCount }: Props) {
   const [vin, setVin] = useState('')
-  const [focused, setFocused] = useState(false)
   const router = useRouter()
 
   function go(e: React.FormEvent) {
@@ -19,174 +21,186 @@ export default function HomeClient({ brands, recentVehicles, partCount }: Props)
     if (vin.trim()) router.push(`/decode?vin=${encodeURIComponent(vin.trim())}`)
   }
 
-  const FUEL_COLOR: Record<string, string> = {
-    Electric: 'text-[#00d4a0] border-[#00d4a0]/20 bg-[#00d4a0]/5',
-    Hybrid:   'text-[#e8a020] border-[#e8a020]/20 bg-[#e8a020]/5',
-    Diesel:   'text-[#f87171] border-[#f87171]/20 bg-[#f87171]/5',
-    Petrol:   'text-[#525270] border-[#525270]/20 bg-[#525270]/5',
-  }
-
   return (
-    <div className="min-h-screen bg-grid" style={{ paddingTop: 52 }}>
+    <div className="min-h-screen bg-paper">
 
-      {/* ── HERO ─────────────────────────────────────────────────── */}
-      <section className="relative pt-20 pb-16 px-6 overflow-hidden">
-        {/* Ambient */}
-        <div className="pointer-events-none absolute inset-0">
-          <div className="absolute top-0 left-1/2 -translate-x-1/2 w-[600px] h-[400px] rounded-full"
-            style={{ background: 'radial-gradient(ellipse, rgba(79,125,255,0.06) 0%, transparent 70%)' }} />
-        </div>
+      {/* ── HERO — asymmetric 2-column ─────────────────────────────── */}
+      <section className="grid border-b border-paper-edge" style={{ gridTemplateColumns: '1fr 340px', minHeight: '72vh' }}>
 
-        <div className="relative max-w-4xl mx-auto">
-          <motion.div initial={{ opacity: 0, y: 16 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.5 }}>
+        {/* Left — main content */}
+        <div className="px-12 py-16 border-r border-paper-edge flex flex-col justify-center">
+          <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.35 }} className="max-w-lg">
 
             {/* Eyebrow */}
-            <div className="flex items-center gap-2 mb-6">
-              <div className="h-px w-6 bg-[#4f7dff]/40" />
-              <span className="text-xs font-mono text-[#4f7dff]/70 uppercase tracking-widest">Chinese Parts Intelligence</span>
+            <div className="flex items-center gap-3 mb-10">
+              <div className="h-px w-8 bg-paper-edge" />
+              <span className="font-mono text-2xs text-ink-mute uppercase tracking-widest">
+                中国汽车配件 · Chinese Parts Intelligence
+              </span>
             </div>
 
-            <h1 className="text-[clamp(2.4rem,5vw,4rem)] font-bold leading-[1.05] tracking-tight text-[#eaeaf5] mb-5">
-              Find any Chinese<br />
-              car part. <span className="text-gradient-blue">Instantly.</span>
+            {/* Headline */}
+            <h1 className="font-serif text-5xl font-bold text-ink leading-[1.05] mb-5" style={{ letterSpacing: '-0.02em' }}>
+              Every part.<br />Every chassis.
             </h1>
 
-            <p className="text-[#525270] text-base mb-10 max-w-lg leading-relaxed">
-              Enter a chassis number — AI decodes the vehicle and surfaces
-              the exact OEM part numbers in seconds.
+            <p className="text-ink-soft text-base mb-10 leading-relaxed">
+              Input a VIN or chassis number — the system decodes the vehicle
+              and surfaces the exact OEM part number in seconds.
             </p>
 
-            {/* VIN input */}
-            <form onSubmit={go} className="relative max-w-2xl">
-              <motion.div
-                animate={focused ? { boxShadow: '0 0 0 1px rgba(79,125,255,0.5), 0 0 40px rgba(79,125,255,0.1)' } : { boxShadow: '0 0 0 1px rgba(24,24,42,0.9)' }}
-                className="flex items-center rounded-2xl overflow-hidden"
-                style={{ background: '#0c0c14' }}
-              >
-                <Search size={15} className="absolute left-5 text-[#525270] pointer-events-none" />
+            {/* VIN Input — precision instrument */}
+            <form onSubmit={go}>
+              <div className="vin-input-wrapper mb-px">
                 <input
                   type="text"
                   value={vin}
                   onChange={e => setVin(e.target.value.toUpperCase())}
-                  onFocus={() => setFocused(true)}
-                  onBlur={() => setFocused(false)}
                   placeholder="LGXCE4GB2M1234567"
-                  className="flex-1 bg-transparent pl-12 pr-4 py-4 text-sm font-mono text-[#eaeaf5] placeholder-[#2a2a45] focus:outline-none tracking-widest"
+                  maxLength={17}
+                  className="w-full px-4 py-3.5 font-mono text-sm bg-transparent text-ink placeholder-ink-mute focus:outline-none tracking-widest"
                 />
-                <button type="submit"
-                  className="m-1.5 px-5 py-2.5 rounded-xl text-sm font-semibold text-white flex items-center gap-2 transition-all"
-                  style={{ background: 'linear-gradient(135deg, #4f7dff, #2d5bff)' }}>
-                  <Zap size={13} /> Decode
-                </button>
-              </motion.div>
-
-              <div className="flex items-center gap-4 mt-3 pl-1">
-                <span className="text-xs text-[#2a2a45]">Try:</span>
-                {['LGXCE4GB2M1234567', 'LSJ24U11000012345'].map(ex => (
-                  <button key={ex} type="button" onClick={() => { setVin(ex); router.push(`/decode?vin=${ex}`) }}
-                    className="text-xs font-mono text-[#525270] hover:text-[#8aafff] transition-colors">{ex}</button>
-                ))}
               </div>
+              <button
+                type="submit"
+                disabled={vin.length < 5}
+                className="btn-vermillion w-full justify-center"
+              >
+                Decode Chassis →
+              </button>
             </form>
+
+            {/* Sample VINs */}
+            <div className="flex items-center gap-4 mt-4">
+              <span className="font-mono text-2xs text-ink-mute">Try:</span>
+              {['LGXCE4GB2M1234567', 'LSJ24U11000012345'].map(ex => (
+                <button key={ex} type="button"
+                  onClick={() => { setVin(ex); router.push(`/decode?vin=${ex}`) }}
+                  className="font-mono text-2xs text-ink-mute hover:text-vermillion transition-colors underline underline-offset-2">
+                  {ex}
+                </button>
+              ))}
+            </div>
           </motion.div>
         </div>
-      </section>
 
-      {/* ── STATS STRIP ──────────────────────────────────────────── */}
-      <div className="border-y border-[#18182a] bg-[#0c0c14]/60">
-        <div className="max-w-4xl mx-auto px-6 py-3 flex items-center gap-8">
-          {[
-            { n: brands.length, label: 'brands' },
-            { n: recentVehicles.length, label: 'vehicles' },
-            { n: partCount.toLocaleString(), label: 'parts indexed' },
-            { n: 'Claude', label: 'AI engine' },
-          ].map((s, i) => (
-            <div key={i} className="flex items-center gap-2">
-              <span className="text-sm font-bold text-[#eaeaf5]">{s.n}</span>
-              <span className="text-xs text-[#525270]">{s.label}</span>
-              {i < 3 && <div className="ml-6 h-3 w-px bg-[#18182a]" />}
-            </div>
-          ))}
-        </div>
-      </div>
+        {/* Right — catalog sidebar */}
+        <motion.div
+          initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: 0.15, duration: 0.35 }}
+          className="px-8 py-16 bg-paper-deep flex flex-col"
+        >
+          {/* Stats */}
+          <div className="font-mono text-2xs text-ink-mute uppercase tracking-widest mb-6">配件库 — Catalog</div>
 
-      {/* ── BRANDS ───────────────────────────────────────────────── */}
-      <section className="max-w-4xl mx-auto px-6 py-14">
-        <div className="flex items-center justify-between mb-5">
-          <h2 className="text-sm font-semibold text-[#eaeaf5] uppercase tracking-widest">Supported Brands</h2>
-          <button onClick={() => router.push('/decode')} className="text-xs text-[#4f7dff] hover:text-[#8aafff] flex items-center gap-1 transition-colors">
-            Decode VIN <ArrowRight size={11} />
-          </button>
-        </div>
-
-        <div className="grid grid-cols-4 sm:grid-cols-8 gap-2">
-          {brands.map((brand, i) => (
-            <motion.button key={brand.id}
-              initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }} transition={{ delay: i * 0.04 }}
-              onClick={() => router.push('/decode')}
-              className="group flex flex-col items-center gap-1.5 p-3 rounded-xl border border-[#18182a] bg-[#0c0c14]
-                hover:border-[rgba(79,125,255,0.3)] hover:bg-[rgba(79,125,255,0.05)] transition-all">
-              <div className="text-xs font-bold text-[#8a8ab0] group-hover:text-[#eaeaf5] transition-colors tracking-tight">{brand.name}</div>
-              <div className="text-[10px] text-[#2a2a45] group-hover:text-[#525270] transition-colors">{brand.nameZh}</div>
-            </motion.button>
-          ))}
-        </div>
-      </section>
-
-      {/* ── VEHICLES ─────────────────────────────────────────────── */}
-      <section className="max-w-4xl mx-auto px-6 pb-14">
-        <div className="flex items-center justify-between mb-5">
-          <h2 className="text-sm font-semibold text-[#eaeaf5] uppercase tracking-widest">Catalog</h2>
-          <span className="text-xs text-[#525270]">{recentVehicles.length} vehicles</span>
-        </div>
-
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2">
-          {recentVehicles.map((v, i) => (
-            <motion.button key={v.id}
-              initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.05 + i * 0.04 }}
-              onClick={() => router.push(`/parts/${v.id}`)}
-              className="group part-card flex items-start justify-between p-4 rounded-xl border border-[#18182a] bg-[#0c0c14] text-left">
-              <div>
-                <div className="text-[10px] text-[#525270] mb-1">{v.brand.name}</div>
-                <div className="text-sm font-semibold text-[#eaeaf5]">{v.model}</div>
-                <div className="flex items-center gap-2 mt-2">
-                  <span className="text-[10px] text-[#525270]">{v.year}</span>
-                  <span className={`text-[10px] px-1.5 py-0.5 rounded border font-mono ${FUEL_COLOR[v.fuelType] || FUEL_COLOR.Petrol}`}>
-                    {v.fuelType}
-                  </span>
+          <div className="space-y-0 mb-8">
+            {[
+              { label: 'Parts indexed', val: partCount.toLocaleString() },
+              { label: 'Vehicles',      val: recentVehicles.length.toString() },
+              { label: 'Brands',        val: brands.length.toString() },
+            ].map((row, i) => (
+              <div key={i}>
+                <div className="flex items-baseline justify-between py-3">
+                  <span className="text-sm text-ink-soft">{row.label}</span>
+                  <span className="font-mono text-sm font-medium text-ink">{row.val}</span>
                 </div>
+                <div className="rule" />
               </div>
-              <div className="flex flex-col items-end gap-1.5 mt-0.5">
-                <span className="text-[10px] text-[#525270] flex items-center gap-1">
-                  <Package size={9} />{v._count.parts}
-                </span>
-                <ChevronRight size={12} className="text-[#4f7dff] opacity-0 group-hover:opacity-100 transition-opacity" />
-              </div>
-            </motion.button>
-          ))}
-        </div>
-      </section>
-
-      {/* ── AI CTA ───────────────────────────────────────────────── */}
-      <section className="max-w-4xl mx-auto px-6 pb-20">
-        <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: 0.3 }}
-          className="flex items-center justify-between p-6 rounded-2xl border"
-          style={{ borderColor: 'rgba(79,125,255,0.15)', background: 'linear-gradient(135deg, rgba(79,125,255,0.05) 0%, transparent 100%)' }}>
-          <div>
-            <div className="flex items-center gap-2 mb-2">
-              <MessageSquare size={13} className="text-[#4f7dff]" />
-              <span className="text-xs text-[#4f7dff] font-medium">AI Assistant</span>
-            </div>
-            <p className="text-sm font-semibold text-[#eaeaf5] mb-1">Describe the part in plain language</p>
-            <p className="text-xs text-[#525270]">"front strut bearing BYD Han 2022" → OEM number, alt numbers, specs</p>
+            ))}
           </div>
-          <button onClick={() => router.push('/chat')}
-            className="flex items-center gap-2 px-4 py-2.5 rounded-xl text-sm font-semibold text-white shrink-0 ml-6 transition-all hover:opacity-90"
-            style={{ background: 'linear-gradient(135deg, #4f7dff, #2d5bff)' }}>
-            Open <ArrowRight size={13} />
-          </button>
+
+          {/* Divider */}
+          <div className="rule-gold mb-8" />
+
+          {/* Quick brand links */}
+          <div className="font-mono text-2xs text-ink-mute uppercase tracking-widest mb-4">Brands</div>
+          <div className="space-y-2 flex-1">
+            {brands.slice(0, 6).map(b => (
+              <button key={b.id} onClick={() => router.push('/decode')}
+                className="w-full flex items-center justify-between group">
+                <span className="text-sm text-ink-soft group-hover:text-vermillion transition-colors">
+                  {b.name}
+                  <span className="font-cjk text-ink-mute ml-2 text-xs">{b.nameZh}</span>
+                </span>
+                <span className="font-mono text-2xs text-ink-mute">{b._count.vehicles}v</span>
+              </button>
+            ))}
+          </div>
+
+          {/* AI CTA */}
+          <div className="mt-8 pt-6 border-t border-paper-edge">
+            <p className="text-xs text-ink-mute mb-2">Don't have the VIN?</p>
+            <button onClick={() => router.push('/chat')}
+              className="text-sm text-vermillion hover:text-vermillion-deep font-medium underline underline-offset-2 transition-colors">
+              Describe the part in plain language →
+            </button>
+          </div>
         </motion.div>
       </section>
+
+      {/* ── BRAND STRIP — dense inline list ──────────────────────────── */}
+      <section className="px-12 py-5 border-b border-paper-edge bg-paper">
+        <div className="flex items-center flex-wrap gap-x-0 gap-y-1">
+          {brands.map((brand, i) => (
+            <span key={brand.id} className="flex items-center">
+              <button
+                onClick={() => router.push('/decode')}
+                className="flex items-center gap-1.5 px-3 py-1 text-sm text-ink-soft hover:text-vermillion transition-colors"
+              >
+                {brand.name}
+                <span className="font-cjk text-xs text-ink-mute">{brand.nameZh}</span>
+              </button>
+              {i < brands.length - 1 && (
+                <span className="text-paper-edge select-none">·</span>
+              )}
+            </span>
+          ))}
+        </div>
+      </section>
+
+      {/* ── CATALOG TABLE — parts manual index ───────────────────────── */}
+      <section className="px-12 py-10">
+        <div className="font-mono text-2xs text-ink-mute uppercase tracking-widest mb-6">Vehicle Index</div>
+
+        <table className="w-full border-collapse">
+          <thead>
+            <tr>
+              {['Vehicle', 'Year', 'Engine', 'Fuel', 'Parts'].map((h, i) => (
+                <th key={h}
+                  className={`font-mono text-2xs text-ink-mute uppercase tracking-widest py-2 border-b border-paper-edge font-normal ${i === 4 ? 'text-right' : 'text-left'}`}>
+                  {h}
+                </th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {recentVehicles.map((v, i) => (
+              <motion.tr
+                key={v.id}
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+                transition={{ delay: i * 0.03 }}
+                onClick={() => router.push(`/parts/${v.id}`)}
+                className="catalog-row border-b border-paper-edge"
+              >
+                <td className="py-3 pr-6">
+                  <span className="text-sm font-medium text-ink">{v.brand.name} {v.model}</span>
+                </td>
+                <td className="py-3 pr-6 font-mono text-xs text-ink-mute">{v.year}</td>
+                <td className="py-3 pr-6 font-mono text-xs text-ink-mute">{v.engine || '—'}</td>
+                <td className="py-3 pr-6">
+                  <span className={`font-mono text-2xs px-1.5 py-0.5 ${FUEL_CLASS[v.fuelType] || 'fuel-petrol'}`}>
+                    {v.fuelType}
+                  </span>
+                </td>
+                <td className="py-3 text-right font-mono text-xs text-ink-mute row-arrow transition-colors">
+                  {v._count.parts} →
+                </td>
+              </motion.tr>
+            ))}
+          </tbody>
+        </table>
+      </section>
+
     </div>
   )
 }

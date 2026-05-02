@@ -2,7 +2,6 @@
 import { useState, useMemo } from 'react'
 import { useRouter } from 'next/navigation'
 import { motion, AnimatePresence } from 'framer-motion'
-import { Package, Search, MessageSquare, ChevronLeft, Copy, Check, Zap } from 'lucide-react'
 import * as LucideIcons from 'lucide-react'
 
 type Category = { id: string; name: string; nameZh: string; icon: string }
@@ -17,7 +16,6 @@ type Vehicle = {
   brand: { name: string; nameZh: string }
   parts: Part[]
 }
-
 interface Props { vehicle: Vehicle; categories: Category[] }
 
 const ICON_MAP: Record<string, React.ElementType> = {
@@ -26,20 +24,18 @@ const ICON_MAP: Record<string, React.ElementType> = {
   box: LucideIcons.Box, navigation: LucideIcons.Navigation, droplets: LucideIcons.Droplets,
   wind: LucideIcons.Wind,
 }
-
-const FUEL_COLOR: Record<string, string> = {
-  Electric: 'text-[#00d4a0] border-[#00d4a0]/20 bg-[#00d4a0]/5',
-  Hybrid:   'text-[#e8a020] border-[#e8a020]/20 bg-[#e8a020]/5',
-  Diesel:   'text-[#f87171] border-[#f87171]/20 bg-[#f87171]/5',
-  Petrol:   'text-[#525270] border-[#525270]/20 bg-[#525270]/5',
+const FUEL_CLASS: Record<string, string> = {
+  Electric: 'fuel-ev', Hybrid: 'fuel-hybrid', Diesel: 'fuel-diesel', Petrol: 'fuel-petrol',
 }
 
 function CopyBtn({ text }: { text: string }) {
   const [done, setDone] = useState(false)
   return (
-    <button onClick={e => { e.stopPropagation(); navigator.clipboard.writeText(text); setDone(true); setTimeout(() => setDone(false), 1400) }}
-      className="opacity-0 group-hover:opacity-100 p-1 rounded transition-opacity">
-      {done ? <Check size={10} className="text-[#00d4a0]" /> : <Copy size={10} className="text-[#525270]" />}
+    <button
+      onClick={e => { e.stopPropagation(); navigator.clipboard.writeText(text); setDone(true); setTimeout(() => setDone(false), 1400) }}
+      className="font-mono text-2xs text-ink-mute hover:text-vermillion transition-colors ml-2 underline underline-offset-2"
+    >
+      {done ? 'copied' : 'copy'}
     </button>
   )
 }
@@ -66,153 +62,175 @@ export default function PartsClient({ vehicle, categories }: Props) {
   }), [vehicle.parts, selectedCat, search])
 
   return (
-    <div className="min-h-screen bg-grid flex flex-col" style={{ paddingTop: 52 }}>
+    <div className="min-h-screen bg-paper">
 
-      {/* Header */}
-      <div className="border-b border-[#18182a] bg-[#0c0c14]/90 backdrop-blur px-6 py-4">
-        <div className="max-w-5xl mx-auto">
-          <button onClick={() => router.back()} className="flex items-center gap-1 text-xs text-[#525270] hover:text-[#8a8ab0] mb-3 transition-colors">
-            <ChevronLeft size={12} /> Back
-          </button>
-          <div className="flex items-center justify-between">
-            <div>
-              <div className="text-xs text-[#525270] mb-1">{vehicle.brand.name} · {vehicle.brand.nameZh}</div>
-              <h1 className="text-xl font-bold text-[#eaeaf5] tracking-tight">{vehicle.model}</h1>
-              <div className="flex items-center gap-2.5 mt-2">
-                <span className="text-xs text-[#525270]">{vehicle.year}</span>
-                {vehicle.engine && <><div className="w-px h-3 bg-[#18182a]" /><span className="text-xs text-[#525270]">{vehicle.engine}</span></>}
-                <div className="w-px h-3 bg-[#18182a]" />
-                <span className={`text-[10px] px-2 py-0.5 rounded border font-mono ${FUEL_COLOR[vehicle.fuelType] || FUEL_COLOR.Petrol}`}>
-                  {vehicle.fuelType}
-                </span>
-                <div className="w-px h-3 bg-[#18182a]" />
-                <span className="text-xs text-[#525270] flex items-center gap-1"><Package size={10} />{vehicle.parts.length} parts</span>
-              </div>
+      {/* ── Vehicle header ── */}
+      <div className="border-b border-paper-edge bg-paper-deep px-12 py-6">
+        <button onClick={() => router.back()} className="font-mono text-2xs text-ink-mute hover:text-vermillion transition-colors mb-4 block">
+          ← Back
+        </button>
+        <div className="flex items-end justify-between">
+          <div>
+            <div className="font-mono text-2xs text-ink-mute uppercase tracking-widest mb-2">
+              {vehicle.brand.name} <span className="font-cjk normal-case">{vehicle.brand.nameZh}</span>
             </div>
-            <button onClick={() => router.push(`/chat?vehicle=${vehicle.id}`)}
-              className="flex items-center gap-2 px-3 py-2 rounded-xl border border-[rgba(79,125,255,0.2)] bg-[rgba(79,125,255,0.06)] text-[#8aafff] text-xs hover:bg-[rgba(79,125,255,0.1)] transition-colors">
-              <MessageSquare size={11} /> Ask AI
-            </button>
+            <h1 className="font-serif text-3xl font-bold text-ink" style={{ letterSpacing: '-0.02em' }}>
+              {vehicle.model}
+              {vehicle.modelZh && <span className="font-cjk text-2xl text-ink-mute ml-3">{vehicle.modelZh}</span>}
+            </h1>
+            <div className="flex items-center gap-4 mt-3">
+              <span className="font-mono text-xs text-ink-mute">{vehicle.year}</span>
+              {vehicle.engine && <><div className="h-3 w-px bg-paper-edge" /><span className="font-mono text-xs text-ink-mute">{vehicle.engine}</span></>}
+              <div className="h-3 w-px bg-paper-edge" />
+              <span className={`font-mono text-2xs px-1.5 py-0.5 ${FUEL_CLASS[vehicle.fuelType] || 'fuel-petrol'}`}>{vehicle.fuelType}</span>
+              <div className="h-3 w-px bg-paper-edge" />
+              <span className="font-mono text-xs text-ink-mute">{vehicle.parts.length} parts</span>
+            </div>
           </div>
+          <button onClick={() => router.push(`/chat?vehicle=${vehicle.id}`)}
+            className="btn-vermillion text-xs" style={{ padding: '8px 14px' }}>
+            Ask AI →
+          </button>
         </div>
       </div>
 
-      <div className="flex flex-1 max-w-5xl mx-auto w-full px-6 py-6 gap-5">
+      <div className="flex" style={{ minHeight: 'calc(100vh - 200px)' }}>
 
-        {/* Sidebar */}
-        <aside className="w-44 shrink-0">
-          <div className="sticky top-20 space-y-0.5">
-            <button onClick={() => setSelectedCat(null)}
-              className={`cat-item w-full flex items-center justify-between px-3 py-2 rounded-lg border text-xs font-medium text-left
-                ${!selectedCat ? 'active border-[rgba(79,125,255,0.3)]' : 'border-transparent text-[#525270]'}`}>
-              <span>All</span>
-              <span className="font-mono text-[10px] opacity-50">{vehicle.parts.length}</span>
-            </button>
-            {catsWithParts.map(cat => {
-              const Icon = ICON_MAP[cat.icon] || Package
-              const count = vehicle.parts.filter(p => p.category.id === cat.id).length
-              return (
-                <button key={cat.id} onClick={() => setSelectedCat(cat.id === selectedCat ? null : cat.id)}
-                  className={`cat-item w-full flex items-center justify-between px-3 py-2 rounded-lg border text-xs font-medium text-left
-                    ${selectedCat === cat.id ? 'active border-[rgba(79,125,255,0.3)]' : 'border-transparent text-[#525270]'}`}>
-                  <div className="flex items-center gap-2">
-                    <Icon size={11} />
-                    <span>{cat.name}</span>
-                  </div>
-                  <span className="font-mono text-[10px] opacity-50">{count}</span>
-                </button>
-              )
-            })}
-          </div>
+        {/* ── Sidebar ── */}
+        <aside className="w-48 shrink-0 border-r border-paper-edge px-6 py-8 bg-paper-deep">
+          <div className="font-mono text-2xs text-ink-mute uppercase tracking-widest mb-4">Category</div>
+
+          {/* Search */}
+          <input type="text" value={search} onChange={e => setSearch(e.target.value)}
+            placeholder="Search..."
+            className="w-full bg-white border border-paper-edge px-3 py-2 text-xs text-ink placeholder-ink-mute focus:outline-none focus:border-ink-soft font-mono mb-5"
+          />
+
+          <button onClick={() => setSelectedCat(null)}
+            className={`cat-link w-full ${!selectedCat ? 'active' : ''}`}>
+            <span>All</span>
+            <span>{vehicle.parts.length}</span>
+          </button>
+
+          {catsWithParts.map(cat => {
+            const count = vehicle.parts.filter(p => p.category.id === cat.id).length
+            return (
+              <button key={cat.id} onClick={() => setSelectedCat(cat.id === selectedCat ? null : cat.id)}
+                className={`cat-link w-full ${selectedCat === cat.id ? 'active' : ''}`}>
+                <span>{cat.name}</span>
+                <span>{count}</span>
+              </button>
+            )
+          })}
         </aside>
 
-        {/* Parts */}
-        <div className="flex-1 min-w-0">
-          <div className="relative mb-4">
-            <Search size={12} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-[#525270] pointer-events-none" />
-            <input type="text" value={search} onChange={e => setSearch(e.target.value)}
-              placeholder="Search name, OEM number..."
-              className="w-full bg-[#0c0c14] border border-[#18182a] rounded-xl pl-9 pr-4 py-2.5 text-xs text-[#eaeaf5] placeholder-[#2a2a45]
-                focus:outline-none focus:border-[rgba(79,125,255,0.35)] transition-colors" />
+        {/* ── Parts list — manual style ── */}
+        <div className="flex-1 px-10 py-8">
+
+          <div className="flex items-center justify-between mb-6">
+            <div className="font-mono text-2xs text-ink-mute uppercase tracking-widest">
+              {filtered.length} part{filtered.length !== 1 ? 's' : ''} {selectedCat || search ? '· filtered' : ''}
+            </div>
+            {(selectedCat || search) && (
+              <button onClick={() => { setSearch(''); setSelectedCat(null) }}
+                className="font-mono text-2xs text-vermillion hover:text-vermillion-deep underline transition-colors">
+                Clear
+              </button>
+            )}
           </div>
 
-          <div className="text-[10px] font-mono text-[#2a2a45] uppercase tracking-widest mb-3">
-            {filtered.length} part{filtered.length !== 1 ? 's' : ''} {selectedCat || search ? '(filtered)' : ''}
+          {/* Column headers */}
+          <div className="grid gap-x-6 pb-2 border-b border-paper-edge mb-0"
+            style={{ gridTemplateColumns: '1fr 160px 80px' }}>
+            <span className="font-mono text-2xs text-ink-mute uppercase tracking-widest">Part</span>
+            <span className="font-mono text-2xs text-ink-mute uppercase tracking-widest">OEM Number</span>
+            <span className="font-mono text-2xs text-ink-mute uppercase tracking-widest">Cat.</span>
           </div>
 
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-2">
-            <AnimatePresence mode="popLayout">
-              {filtered.map((part, i) => {
-                const Icon = ICON_MAP[part.category.icon] || Package
-                const open = expanded === part.id
-                return (
-                  <motion.div key={part.id} layout initial={{ opacity: 0, y: 4 }} animate={{ opacity: 1, y: 0 }}
-                    exit={{ opacity: 0, scale: 0.97 }} transition={{ delay: i * 0.015 }}
+          <AnimatePresence mode="popLayout">
+            {filtered.map((part, i) => {
+              const open = expanded === part.id
+              return (
+                <motion.div key={part.id} layout
+                  initial={{ opacity: 0 }} animate={{ opacity: 1 }}
+                  exit={{ opacity: 0, height: 0 }} transition={{ delay: i * 0.015 }}>
+
+                  {/* Part row */}
+                  <div
                     onClick={() => setExpanded(open ? null : part.id)}
-                    className="group part-card rounded-xl border border-[#18182a] bg-[#0c0c14] cursor-pointer select-none overflow-hidden">
-
-                    <div className="p-4">
-                      <div className="flex items-start justify-between gap-2">
-                        <div className="flex items-start gap-3 min-w-0">
-                          <div className="w-7 h-7 rounded-lg flex items-center justify-center shrink-0 mt-0.5"
-                            style={{ background: 'rgba(79,125,255,0.08)', border: '1px solid rgba(79,125,255,0.15)' }}>
-                            <Icon size={11} className="text-[#4f7dff]" />
-                          </div>
-                          <div className="min-w-0">
-                            <div className="text-sm font-semibold text-[#eaeaf5] leading-snug">{part.name}</div>
-                            {part.nameZh && <div className="text-[10px] text-[#525270] mt-0.5">{part.nameZh}</div>}
-                            <div className="flex items-center gap-1.5 mt-2">
-                              <span className="oem-chip">{part.oemNumber}</span>
-                              <CopyBtn text={part.oemNumber} />
-                            </div>
-                          </div>
-                        </div>
-                        <div className="shrink-0 text-right">
-                          <span className="text-[10px] text-[#525270]">{part.category.name}</span>
-                          {part.position && <div className="text-[10px] text-[#2a2a45] mt-0.5">{part.position}</div>}
-                        </div>
-                      </div>
+                    className="part-row grid gap-x-6 py-3 border-b border-paper-edge cursor-pointer"
+                    style={{ gridTemplateColumns: '1fr 160px 80px' }}
+                  >
+                    {/* Part name — hanzi first */}
+                    <div>
+                      {part.nameZh
+                        ? <>
+                            <div className="hanzi-primary">{part.nameZh}</div>
+                            <div className="hanzi-secondary">{part.name}</div>
+                          </>
+                        : <div className="text-sm font-medium text-ink">{part.name}</div>
+                      }
                     </div>
 
-                    <AnimatePresence>
-                      {open && (
-                        <motion.div initial={{ height: 0, opacity: 0 }} animate={{ height: 'auto', opacity: 1 }}
-                          exit={{ height: 0, opacity: 0 }} className="overflow-hidden">
-                          <div className="px-4 pb-4 pt-0 border-t border-[#18182a] mt-0 pt-3 space-y-2 text-xs">
-                            {part.description && <p className="text-[#8a8ab0] leading-relaxed">{part.description}</p>}
-                            {part.altNumbers && (
-                              <div className="flex items-center gap-2">
-                                <span className="text-[#525270]">Alt:</span>
-                                <span className="font-mono text-[#e8a020] text-[10px]">{part.altNumbers}</span>
-                              </div>
-                            )}
-                            {part.material && <div className="text-[#525270]">Material: <span className="text-[#8a8ab0]">{part.material}</span></div>}
-                            {part.notes && (
-                              <div className="flex items-start gap-1.5 px-3 py-2 rounded-lg text-[#e8a020]"
-                                style={{ background: 'rgba(232,160,32,0.05)', border: '1px solid rgba(232,160,32,0.15)' }}>
-                                <Zap size={9} className="mt-0.5 shrink-0" />
-                                {part.notes}
-                              </div>
-                            )}
-                            <button onClick={e => { e.stopPropagation(); router.push(`/chat?part=${part.oemNumber}&vehicle=${vehicle.id}`) }}
-                              className="flex items-center gap-1.5 text-[#4f7dff] hover:text-[#8aafff] transition-colors">
-                              <MessageSquare size={10} /> Ask AI about this part
-                            </button>
-                          </div>
-                        </motion.div>
-                      )}
-                    </AnimatePresence>
-                  </motion.div>
-                )
-              })}
-            </AnimatePresence>
-          </div>
+                    {/* OEM number */}
+                    <div className="flex items-start pt-0.5">
+                      <span className="oem-chip vermillion">{part.oemNumber}</span>
+                      <CopyBtn text={part.oemNumber} />
+                    </div>
+
+                    {/* Category */}
+                    <div className="pt-1">
+                      <span className="font-mono text-2xs text-ink-mute uppercase tracking-wide">{part.category.name}</span>
+                      {part.position && <div className="font-mono text-2xs text-ink-mute mt-0.5 normal-case">{part.position}</div>}
+                    </div>
+                  </div>
+
+                  {/* Expanded detail */}
+                  <AnimatePresence>
+                    {open && (
+                      <motion.div initial={{ height: 0, opacity: 0 }} animate={{ height: 'auto', opacity: 1 }}
+                        exit={{ height: 0, opacity: 0 }} className="overflow-hidden">
+                        <div className="bg-paper-deep border-b border-paper-edge px-4 py-4 grid gap-x-8 gap-y-3 text-xs"
+                          style={{ gridTemplateColumns: '1fr 1fr 1fr' }}>
+                          {part.description && (
+                            <div className="col-span-3 text-ink-soft leading-relaxed">{part.description}</div>
+                          )}
+                          {part.altNumbers && (
+                            <div>
+                              <div className="font-mono text-2xs text-ink-mute uppercase tracking-widest mb-1">Alt. Numbers</div>
+                              <span className="font-mono text-xs text-gold">{part.altNumbers}</span>
+                            </div>
+                          )}
+                          {part.material && (
+                            <div>
+                              <div className="font-mono text-2xs text-ink-mute uppercase tracking-widest mb-1">Material</div>
+                              <span className="text-ink-soft">{part.material}</span>
+                            </div>
+                          )}
+                          {part.notes && (
+                            <div className="col-span-3 flex items-start gap-2 p-2 border border-paper-edge bg-white">
+                              <span className="text-vermillion font-mono text-2xs uppercase tracking-widest shrink-0 mt-0.5">Note</span>
+                              <span className="text-ink-soft">{part.notes}</span>
+                            </div>
+                          )}
+                          <button onClick={e => { e.stopPropagation(); router.push(`/chat?part=${part.oemNumber}&vehicle=${vehicle.id}`) }}
+                            className="text-xs text-vermillion hover:text-vermillion-deep underline underline-offset-2 transition-colors">
+                            Ask AI about this part →
+                          </button>
+                        </div>
+                      </motion.div>
+                    )}
+                  </AnimatePresence>
+                </motion.div>
+              )
+            })}
+          </AnimatePresence>
 
           {filtered.length === 0 && (
-            <div className="flex flex-col items-center justify-center py-20 text-center">
-              <Package size={28} className="text-[#18182a] mb-3" />
-              <p className="text-xs text-[#525270]">No parts for this filter</p>
-              <button onClick={() => { setSearch(''); setSelectedCat(null) }} className="text-xs text-[#4f7dff] mt-2 hover:underline">Clear</button>
+            <div className="flex flex-col items-center py-20 text-center">
+              <p className="text-ink-mute text-sm">No parts match this filter</p>
+              <button onClick={() => { setSearch(''); setSelectedCat(null) }}
+                className="text-xs text-vermillion mt-2 underline">Clear filters</button>
             </div>
           )}
         </div>
