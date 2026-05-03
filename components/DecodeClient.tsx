@@ -44,7 +44,11 @@ export default function DecodeClient() {
       const res = await fetch(`/api/decode?vin=${encodeURIComponent(v)}`)
       const data = await res.json()
       if (!res.ok) throw new Error(data.error || 'Decode failed')
-      // Stamp delay
+      // If we came with a part query and there's exactly one vehicle match, go straight there
+      if (partQuery && data.matchedVehicles?.length === 1) {
+        router.push(`/parts/${data.matchedVehicles[0].id}?q=${encodeURIComponent(partQuery)}`)
+        return
+      }
       await new Promise(r => setTimeout(r, 100))
       setStamped(true)
       await new Promise(r => setTimeout(r, 120))
