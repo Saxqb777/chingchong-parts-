@@ -7,6 +7,7 @@ const links = [
   { href: '/',        label: 'Overview'   },
   { href: '/decode',  label: 'VIN Decode' },
   { href: '/catalog', label: 'Catalog'    },
+  { href: '/chat',    label: 'AI Search'  },
 ]
 
 export default function Nav() {
