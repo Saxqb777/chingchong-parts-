@@ -1,9 +1,11 @@
 'use client'
 import { useState, useRef, useEffect } from 'react'
-import { useSearchParams } from 'next/navigation'
+import { useSearchParams, useRouter } from 'next/navigation'
 import { motion, AnimatePresence } from 'framer-motion'
 
 interface Message { role: 'user' | 'assistant'; content: string; id: string }
+interface Brand { id: string; name: string; nameZh: string }
+interface VehicleStub { id: string; model: string; year: number; brandId: string; brand: { id: string; name: string } }
 
 const LOADING_STATES = [
   '配件库 조회중...', 'Scanning catalog...', 'Cross-referencing OEM...', 'Getting your parts ready...',
@@ -18,13 +20,181 @@ const QUICK = [
   'Oil filter MG ZS 1.5L',
 ]
 
-export default function ChatClient() {
+/* ── No-VIN Wizard ── */
+function NoVinWizard({ brands, vehicles, onSkip }: {
+  brands: Brand[]
+  vehicles: VehicleStub[]
+  onSkip: () => void
+}) {
+  const router = useRouter()
+  const [step, setStep] = useState<'brand' | 'model' | 'year' | 'part'>('brand')
+  const [selectedBrand, setSelectedBrand] = useState<Brand | null>(null)
+  const [selectedModel, setSelectedModel] = useState<string | null>(null)
+  const [selectedYear, setSelectedYear] = useState<number | null>(null)
+  const [partInput, setPartInput] = useState('')
+
+  const models = selectedBrand
+    ? [...new Set(vehicles.filter(v => v.brandId === selectedBrand.id).map(v => v.model))].sort()
+    : []
+
+  const years = (selectedBrand && selectedModel)
+    ? [...new Set(vehicles.filter(v => v.brandId === selectedBrand.id && v.model === selectedModel).map(v => v.year))].sort((a, b) => b - a)
+    : []
+
+  function pickBrand(b: Brand) { setSelectedBrand(b); setStep('model') }
+  function pickModel(m: string) { setSelectedModel(m); setStep('year') }
+  function pickYear(y: number) { setSelectedYear(y); setStep('part') }
+
+  function findPart() {
+    const q = partInput.trim()
+    if (!q) return
+    const vehicle = vehicles.find(v =>
+      v.brandId === selectedBrand!.id &&
+      v.model === selectedModel &&
+      v.year === selectedYear
+    )
+    if (vehicle) {
+      router.push(`/parts/${vehicle.id}?q=${encodeURIComponent(q)}`)
+    } else {
+      // Fallback: send to AI chat with context
+      router.push(`/chat?ai=1&q=${encodeURIComponent(`${selectedBrand!.name} ${selectedModel} ${selectedYear}: ${q}`)}`)
+    }
+  }
+
+  const STEP_LABELS = { brand: 'Brand', model: 'Model', year: 'Year', part: 'Part' }
+  const breadcrumb = [
+    selectedBrand?.name,
+    selectedModel,
+    selectedYear?.toString(),
+  ].filter(Boolean).join(' › ')
+
+  return (
+    <div className="flex-1 flex flex-col items-start justify-center px-12 pb-10 max-w-2xl">
+      <div className="flex items-center gap-3 mb-8">
+        <div className="h-px w-6 bg-paper-edge" />
+        <span className="font-mono text-2xs text-ink-mute uppercase tracking-widest">没有车架号 · No VIN</span>
+      </div>
+
+      <h2 className="font-serif text-3xl font-bold text-ink mb-2" style={{ letterSpacing: '-0.02em' }}>
+        Find a part without a VIN.
+      </h2>
+      <p className="text-ink-soft text-sm mb-8 leading-relaxed">
+        Select the brand, model, and year — then describe the part you need.
+      </p>
+
+      {/* Progress breadcrumb */}
+      {breadcrumb && (
+        <div className="font-mono text-xs text-vermillion mb-6 flex items-center gap-2">
+          <span>{breadcrumb}</span>
+          <button onClick={() => { setStep('brand'); setSelectedBrand(null); setSelectedModel(null); setSelectedYear(null) }}
+            className="text-ink-mute hover:text-vermillion underline underline-offset-2 text-2xs">reset</button>
+        </div>
+      )}
+
+      <AnimatePresence mode="wait">
+        {step === 'brand' && (
+          <motion.div key="brand" initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -8 }} transition={{ duration: 0.18 }}>
+            <div className="font-mono text-2xs text-ink-mute uppercase tracking-widest mb-3">1 · Select brand</div>
+            <div className="flex flex-wrap gap-2">
+              {brands.map(b => (
+                <button key={b.id} onClick={() => pickBrand(b)}
+                  className="flex items-center gap-2 px-3 py-2 bg-paper-deep border border-paper-edge hover:border-vermillion hover:text-vermillion text-sm text-ink-soft transition-colors">
+                  {b.name}
+                  <span className="font-cjk text-xs text-ink-mute">{b.nameZh}</span>
+                </button>
+              ))}
+            </div>
+          </motion.div>
+        )}
+
+        {step === 'model' && (
+          <motion.div key="model" initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -8 }} transition={{ duration: 0.18 }}>
+            <div className="font-mono text-2xs text-ink-mute uppercase tracking-widest mb-3">2 · Select model</div>
+            {models.length === 0 ? (
+              <p className="text-sm text-ink-mute">No models in catalog for {selectedBrand?.name}.</p>
+            ) : (
+              <div className="flex flex-wrap gap-2">
+                {models.map(m => (
+                  <button key={m} onClick={() => pickModel(m)}
+                    className="px-3 py-2 bg-paper-deep border border-paper-edge hover:border-vermillion hover:text-vermillion text-sm text-ink-soft transition-colors">
+                    {m}
+                  </button>
+                ))}
+              </div>
+            )}
+            <button onClick={() => setStep('brand')} className="mt-4 font-mono text-2xs text-ink-mute hover:text-vermillion underline underline-offset-2 transition-colors">
+              ← Back
+            </button>
+          </motion.div>
+        )}
+
+        {step === 'year' && (
+          <motion.div key="year" initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -8 }} transition={{ duration: 0.18 }}>
+            <div className="font-mono text-2xs text-ink-mute uppercase tracking-widest mb-3">3 · Select year</div>
+            <div className="flex flex-wrap gap-2">
+              {years.map(y => (
+                <button key={y} onClick={() => pickYear(y)}
+                  className="px-4 py-2 bg-paper-deep border border-paper-edge hover:border-vermillion hover:text-vermillion font-mono text-sm text-ink-soft transition-colors">
+                  {y}
+                </button>
+              ))}
+            </div>
+            <button onClick={() => setStep('model')} className="mt-4 font-mono text-2xs text-ink-mute hover:text-vermillion underline underline-offset-2 transition-colors">
+              ← Back
+            </button>
+          </motion.div>
+        )}
+
+        {step === 'part' && (
+          <motion.div key="part" initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -8 }} transition={{ duration: 0.18 }}
+            className="w-full">
+            <div className="font-mono text-2xs text-ink-mute uppercase tracking-widest mb-3">4 · Describe the part</div>
+            <div className="vin-input-wrapper mb-3">
+              <input
+                autoFocus
+                type="text"
+                value={partInput}
+                onChange={e => setPartInput(e.target.value)}
+                onKeyDown={e => { if (e.key === 'Enter') findPart() }}
+                placeholder="e.g. front brake pad, oil filter, headlight…"
+                className="w-full px-4 py-3.5 text-sm bg-transparent text-ink placeholder-ink-mute focus:outline-none"
+              />
+            </div>
+            <button onClick={findPart} disabled={!partInput.trim()}
+              className="btn-vermillion disabled:opacity-30">
+              Find Part →
+            </button>
+            <button onClick={() => setStep('year')} className="ml-4 font-mono text-2xs text-ink-mute hover:text-vermillion underline underline-offset-2 transition-colors">
+              ← Back
+            </button>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      <div className="mt-10 pt-6 border-t border-paper-edge w-full">
+        <button onClick={onSkip} className="font-mono text-2xs text-ink-mute hover:text-vermillion transition-colors underline underline-offset-2">
+          Skip — describe in plain language instead →
+        </button>
+      </div>
+    </div>
+  )
+}
+
+/* ── Main ── */
+export default function ChatClient({ brands = [], vehicles = [] }: {
+  brands?: Brand[]
+  vehicles?: VehicleStub[]
+}) {
   const params = useSearchParams()
   const [messages, setMessages] = useState<Message[]>([])
   const [input, setInput] = useState('')
   const [loading, setLoading] = useState(false)
   const [streamContent, setStreamContent] = useState('')
   const [loadingText, setLoadingText] = useState(LOADING_STATES[0])
+  // Show wizard only if we have catalog data; skip if arriving via ?ai=1 or ?part= etc
+  const [showWizard, setShowWizard] = useState(
+    brands.length > 0 && !params.get('ai') && !params.get('part') && !params.get('vehicle')
+  )
   const bottomRef = useRef<HTMLDivElement>(null)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null)
@@ -32,8 +202,10 @@ export default function ChatClient() {
   useEffect(() => {
     const part = params.get('part')
     const vehicle = params.get('vehicle')
+    const aiQ = params.get('q')
     if (part) setInput(`Tell me about OEM part ${part}`)
     else if (vehicle) setInput('Most common failing parts for this vehicle?')
+    else if (aiQ) { setShowWizard(false); send(aiQ) }
   }, [])
 
   useEffect(() => {
@@ -53,6 +225,7 @@ export default function ChatClient() {
   async function send(text?: string) {
     const content = (text || input).trim()
     if (!content || loading) return
+    setShowWizard(false)
     setInput('')
     const userMsg: Message = { role: 'user', content, id: Date.now().toString() }
     const newMessages = [...messages, userMsg]
@@ -100,7 +273,7 @@ export default function ChatClient() {
         </p>
 
         {messages.length > 0 && (
-          <button onClick={() => { setMessages([]); setStreamContent('') }}
+          <button onClick={() => { setMessages([]); setStreamContent(''); setShowWizard(brands.length > 0) }}
             className="font-mono text-2xs text-ink-mute hover:text-vermillion transition-colors underline underline-offset-2 mb-8">
             Clear session
           </button>
@@ -122,11 +295,22 @@ export default function ChatClient() {
         </div>
       </aside>
 
-      {/* ── Main intercom area ── */}
+      {/* ── Main area ── */}
       <div className="flex flex-col" style={{ maxHeight: 'calc(100vh - 52px)' }}>
 
-        {/* Empty state */}
-        {messages.length === 0 && !loading && (
+        {/* No-VIN Wizard (replaces empty state when catalog data available) */}
+        {showWizard && messages.length === 0 && !loading && (
+          <div className="flex-1 overflow-y-auto">
+            <NoVinWizard
+              brands={brands}
+              vehicles={vehicles}
+              onSkip={() => setShowWizard(false)}
+            />
+          </div>
+        )}
+
+        {/* Plain empty state (no catalog data or wizard skipped) */}
+        {!showWizard && messages.length === 0 && !loading && (
           <div className="flex-1 flex flex-col items-start justify-center px-12 pb-10">
             <div className="seal w-10 h-10 text-base mb-6" style={{ fontSize: 18 }}>配</div>
             <h2 className="font-serif text-3xl font-bold text-ink mb-3" style={{ letterSpacing: '-0.02em' }}>
@@ -187,7 +371,7 @@ export default function ChatClient() {
           </div>
         )}
 
-        {/* ── Workshop intercom input ── */}
+        {/* ── Input bar ── */}
         <div className="border-t border-paper-edge bg-paper-deep px-12 py-5">
           <div className={`intercom-input flex items-end gap-4 bg-white border border-paper-edge p-3 ${input ? 'border-left-vermillion' : ''}`}>
             <div className="font-mono text-2xs text-ink-mute uppercase tracking-widest shrink-0 pb-2">→</div>
@@ -225,11 +409,9 @@ function ResponseContent({ content }: { content: string }) {
       {lines.map((line, i) => {
         if (!line.trim()) return <div key={i} className="h-1" />
 
-        // Bold heading (standalone **)
         if (/^\*\*[^*]+\*\*$/.test(line.trim()))
           return <div key={i} className="font-serif text-base font-bold text-ink">{line.trim().slice(2,-2)}</div>
 
-        // Bullet
         if (line.startsWith('- ') || line.startsWith('• '))
           return (
             <div key={i} className="flex items-start gap-3 text-ink-soft">
@@ -238,7 +420,6 @@ function ResponseContent({ content }: { content: string }) {
             </div>
           )
 
-        // Label rows (OEM: / Alt: / Position:)
         const colonMatch = line.match(/^(OEM|Alt|Alt\.|Position|Fitment|Note|Vehicle|Part|Material):\s*(.+)/i)
         if (colonMatch)
           return (
@@ -248,7 +429,6 @@ function ResponseContent({ content }: { content: string }) {
             </div>
           )
 
-        // Warning
         if (line.startsWith('⚠️'))
           return <div key={i} className="text-xs text-warn border-l-2 pl-3 py-1" style={{ borderColor: 'var(--warn)' }}>{parseParts(line)}</div>
 

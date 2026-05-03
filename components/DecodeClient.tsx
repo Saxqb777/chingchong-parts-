@@ -19,7 +19,7 @@ export default function DecodeClient() {
   const params = useSearchParams()
   const router = useRouter()
   const [vin, setVin] = useState(params.get('vin') || '')
-  const partQuery = params.get('q') || ''
+  const [partQuery, setPartQuery] = useState(params.get('q') || '')
   const [loading, setLoading] = useState(false)
   const [result, setResult] = useState<DecodeResult | null>(null)
   const [error, setError] = useState('')
@@ -31,6 +31,10 @@ export default function DecodeClient() {
   async function decode(vinVal?: string) {
     const v = (vinVal || vin).trim()
     if (!v) return
+    // Re-read from params each call so it's never stale (Suspense boundary can delay initial read)
+    const currentPartQuery = params.get('q') || ''
+    setPartQuery(currentPartQuery)
+    const partQuery = currentPartQuery
     setLoading(true); setError(''); setResult(null); setScanChars([]); setStamped(false)
 
     // Animate characters
@@ -165,7 +169,7 @@ export default function DecodeClient() {
                 <div className="stamp-in">
                   <div className="w-14 h-14 rounded-full border-4 border-vermillion flex items-center justify-center"
                     style={{ color: 'var(--vermillion)' }}>
-                    <span className="font-cjk text-lg font-bold">识</span>
+                    <span className="font-cjk text-lg font-bold">验</span>
                   </div>
                 </div>
               </motion.div>
