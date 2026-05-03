@@ -19,6 +19,7 @@ export default function DecodeClient() {
   const params = useSearchParams()
   const router = useRouter()
   const [vin, setVin] = useState(params.get('vin') || '')
+  const partQuery = params.get('q') || ''
   const [loading, setLoading] = useState(false)
   const [result, setResult] = useState<DecodeResult | null>(null)
   const [error, setError] = useState('')
@@ -221,7 +222,7 @@ export default function DecodeClient() {
                     </div>
                     <div className="space-y-1">
                       {result.matchedVehicles.map(v => (
-                        <button key={v.id} onClick={() => router.push(`/parts/${v.id}`)}
+                        <button key={v.id} onClick={() => router.push(`/parts/${v.id}${partQuery ? `?q=${encodeURIComponent(partQuery)}` : ''}`)}
                           className="w-full text-left flex items-center justify-between p-3 bg-white border border-paper-edge hover:border-vermillion transition-colors group">
                           <div>
                             <div className="text-sm font-medium text-ink">{v.brand.name} {v.model}</div>

@@ -2,7 +2,13 @@ import { prisma } from '@/lib/db'
 import { notFound } from 'next/navigation'
 import PartsClient from '@/components/PartsClient'
 
-export default async function PartsPage({ params }: { params: { vehicleId: string } }) {
+export default async function PartsPage({
+  params,
+  searchParams,
+}: {
+  params: { vehicleId: string }
+  searchParams: { q?: string }
+}) {
   const vehicle = await prisma.vehicle.findUnique({
     where: { id: params.vehicleId },
     include: {
@@ -15,5 +21,11 @@ export default async function PartsPage({ params }: { params: { vehicleId: strin
 
   const categories = await prisma.partCategory.findMany({ orderBy: { name: 'asc' } })
 
-  return <PartsClient vehicle={vehicle as Parameters<typeof PartsClient>[0]['vehicle']} categories={categories} />
+  return (
+    <PartsClient
+      vehicle={vehicle as Parameters<typeof PartsClient>[0]['vehicle']}
+      categories={categories}
+      initialQuery={searchParams.q || ''}
+    />
+  )
 }

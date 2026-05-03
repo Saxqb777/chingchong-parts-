@@ -4,9 +4,9 @@ import { usePathname } from 'next/navigation'
 import { useEffect, useState } from 'react'
 
 const links = [
-  { href: '/',       label: 'Overview'   },
-  { href: '/decode', label: 'VIN Decode' },
-  { href: '/chat',   label: 'AI Search'  },
+  { href: '/',        label: 'Overview'   },
+  { href: '/decode',  label: 'VIN Decode' },
+  { href: '/catalog', label: 'Catalog'    },
 ]
 
 export default function Nav() {

@@ -216,3 +216,141 @@ body {
 .fuel-hybrid  { color: var(--warn); border: 1px solid rgba(181,131,42,0.3); background: rgba(181,131,42,0.07); }
 .fuel-diesel  { color: var(--vermillion-deep); border: 1px solid rgba(155,37,32,0.25); background: var(--vermillion-dim); }
 .fuel-petrol  { color: var(--ink-mute); border: 1px solid var(--paper-edge); background: var(--paper-deep); }
+
+/* ── RESULT PAGE SPECIFIC ───────────────────────────────────────────────── */
+
+/* Row flash on copy */
+@keyframes row-flash {
+  0%   { border-left: 3px solid var(--vermillion); background: var(--vermillion-dim); }
+  70%  { border-left: 3px solid var(--vermillion); background: var(--vermillion-dim); }
+  100% { border-left: 3px solid transparent; background: transparent; }
+}
+.row-flash { animation: row-flash 1.5s ease-out forwards; }
+
+/* Vehicle banner */
+.vehicle-banner {
+  background: var(--paper-deep);
+  border-bottom: 1px solid var(--paper-edge);
+}
+
+/* Sticky search strip */
+.search-strip {
+  position: sticky;
+  top: 52px;
+  z-index: 30;
+  background: var(--paper);
+  border-bottom: 1px solid var(--paper-edge);
+}
+
+/* Category chips scroll */
+.cat-chips {
+  display: flex;
+  gap: 0;
+  overflow-x: auto;
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+.cat-chips::-webkit-scrollbar { display: none; }
+
+.cat-chip {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 0.65rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--ink-mute);
+  padding: 6px 14px;
+  white-space: nowrap;
+  border-bottom: 2px solid transparent;
+  transition: color 0.12s, border-color 0.12s;
+  cursor: pointer;
+  background: none;
+  border-left: none; border-right: none; border-top: none;
+}
+.cat-chip:hover { color: var(--ink-soft); }
+.cat-chip.active { color: var(--ink); border-bottom-color: var(--vermillion); }
+
+/* Parts table */
+.parts-table { width: 100%; border-collapse: collapse; }
+.parts-table th {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 0.6rem;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--ink-mute);
+  font-weight: 400;
+  padding: 8px 12px 8px 0;
+  border-bottom: 1px solid var(--paper-edge);
+  text-align: left;
+}
+.parts-table th:last-child { text-align: right; padding-right: 0; }
+
+.part-row-tr {
+  border-bottom: 1px solid var(--paper-edge);
+  transition: background 0.1s;
+  cursor: pointer;
+  border-left: 3px solid transparent;
+}
+.part-row-tr:hover { background: var(--paper-deep); }
+.part-row-tr:hover .oem-main { color: var(--vermillion); }
+.part-row-tr:hover .copy-btn { background: var(--vermillion); color: white; border-color: var(--vermillion); }
+.part-row-tr td { padding: 12px 12px 12px 0; vertical-align: top; }
+.part-row-tr td:first-child { padding-left: 0; }
+
+/* Copy button */
+.copy-btn {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 0.65rem;
+  letter-spacing: 0.06em;
+  color: var(--ink-soft);
+  background: var(--paper-deep);
+  border: 1px solid var(--paper-edge);
+  padding: 4px 10px;
+  cursor: pointer;
+  transition: background 0.12s, color 0.12s, border-color 0.12s;
+  white-space: nowrap;
+}
+.copy-btn.copied {
+  background: var(--vermillion);
+  color: white;
+  border-color: var(--vermillion);
+}
+
+/* OEM number in table */
+.oem-main {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 0.82rem;
+  letter-spacing: 0.04em;
+  color: var(--ink);
+  transition: color 0.1s;
+}
+
+/* AI Modal */
+.modal-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(28,24,21,0.6);
+  z-index: 100;
+  display: flex;
+  align-items: flex-start;
+  justify-content: flex-end;
+  padding-top: 52px;
+}
+.modal-panel {
+  width: 480px;
+  height: calc(100vh - 52px);
+  background: var(--paper);
+  border-left: 1px solid var(--paper-edge);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+/* Keyboard shortcut overlay */
+.kbd-chip {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 0.65rem;
+  background: var(--paper-deep);
+  border: 1px solid var(--paper-edge);
+  padding: 2px 7px;
+  color: var(--ink-soft);
+}
