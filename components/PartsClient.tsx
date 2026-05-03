@@ -1,6 +1,6 @@
 'use client'
 import { useState, useMemo, useEffect, useRef, useCallback } from 'react'
-import { useRouter } from 'next/navigation'
+import { useRouter, usePathname } from 'next/navigation'
 import { motion, AnimatePresence } from 'framer-motion'
 
 type Category = { id: string; name: string; nameZh: string; icon: string }
@@ -21,63 +21,87 @@ const FUEL_CLASS: Record<string, string> = {
   Electric: 'fuel-ev', Hybrid: 'fuel-hybrid', Diesel: 'fuel-diesel', Petrol: 'fuel-petrol',
 }
 
-// Bug 6 fix: synonym map for accurate search
+// ── Synonym map: query key → terms that count as a match in part name/zh ──
 const SYNONYMS: Record<string, string[]> = {
-  headlight:    ['headlight', 'head lamp', 'headlamp', '前大灯', '前照灯', 'head light'],
-  tail:         ['tail light', 'tail lamp', 'taillight', '尾灯', 'rear light'],
-  fog:          ['fog light', 'fog lamp', '雾灯'],
-  engine:       ['engine', '发动机'],
-  brake:        ['brake', 'brakes', '刹车', '制动'],
-  oil:          ['oil filter', 'oil pump', '机油'],
-  'air filter': ['air filter', 'air cleaner', '空气滤'],
-  'fuel filter':['fuel filter', 'diesel filter', '燃油滤', '柴油滤'],
-  shock:        ['shock', 'absorber', 'strut', '减振器', 'damper'],
-  bearing:      ['bearing', '轴承', 'hub'],
-  battery:      ['battery', '电池', '蓄电池'],
-  alternator:   ['alternator', 'generator', '发电机'],
-  radiator:     ['radiator', '散热器'],
-  transmission: ['transmission', 'gearbox', 'gear box', '变速箱', '变速器'],
-  steering:     ['steering', 'rack', '转向'],
-  suspension:   ['suspension', 'spring', 'control arm', '悬挂', '弹簧'],
-  exhaust:      ['exhaust', 'muffler', 'dpf', '排气'],
-  fuel:         ['fuel injector', 'fuel pump', 'injector', '喷油', '燃油泵'],
-  timing:       ['timing chain', 'timing belt', '正时'],
-  coolant:      ['coolant', 'water pump', 'thermostat', '冷却', '水泵', '节温器'],
-  clutch:       ['clutch', '离合器'],
-  mirror:       ['mirror', '后视镜', '反光镜'],
-  bumper:       ['bumper', '保险杠'],
-  wiper:        ['wiper', 'blade', '雨刮', '刮水'],
-  spark:        ['spark plug', 'ignition', '火花塞'],
-  turbo:        ['turbo', 'turbocharger', '涡轮'],
+  headlight:       ['headlight', 'head lamp', 'headlamp', 'head light', '前大灯', '前照灯', '大灯'],
+  taillight:       ['taillight', 'tail lamp', 'tail light', 'rear light', '尾灯', '后大灯'],
+  fog:             ['fog light', 'fog lamp', '雾灯'],
+  'brake pad':     ['brake pad', 'brake pads', '刹车片', '前刹车片', '后刹车片'],
+  brake:           ['brake', '刹车', '制动'],
+  'oil filter':    ['oil filter', '机油滤清器', '机油滤芯'],
+  'air filter':    ['air filter', '空气滤清器', '空滤'],
+  'fuel filter':   ['fuel filter', '燃油滤清器'],
+  'spark plug':    ['spark plug', '火花塞'],
+  alternator:      ['alternator', '发电机'],
+  starter:         ['starter motor', 'starter', '起动机'],
+  radiator:        ['radiator', '散热器', '水箱'],
+  'water pump':    ['water pump', '水泵'],
+  'timing belt':   ['timing belt', 'timing chain', '正时皮带', '正时链'],
+  'serpentine belt':['serpentine belt', '传动皮带'],
+  'wheel bearing': ['wheel bearing', '轮毂轴承'],
+  'ball joint':    ['ball joint', '球头'],
+  'tie rod':       ['tie rod', '拉杆'],
+  'control arm':   ['control arm', '摆臂'],
+  'shock absorber':['shock absorber', 'shock', '减震器', '减振器', 'damper'],
+  strut:           ['strut', '支柱'],
+  'side mirror':   ['side mirror', 'wing mirror', '后视镜'],
+  windshield:      ['windshield', 'windscreen', '风挡', '挡风玻璃'],
+  wiper:           ['wiper', 'wiper blade', '雨刷', '刮水器'],
+  'door handle':   ['door handle', '门把手'],
+  fender:          ['fender', '翼子板'],
+  bumper:          ['bumper', '保险杠'],
+  hood:            ['hood', 'bonnet', '引擎盖', '前盖'],
+  engine:          ['engine', 'motor', '发动机', 'engine assembly'],
+  transmission:    ['transmission', 'gearbox', '变速箱', '变速器'],
+  clutch:          ['clutch', '离合器'],
+  turbo:           ['turbo', 'turbocharger', '涡轮'],
+  battery:         ['battery', '电池', '蓄电池'],
+  thermostat:      ['thermostat', '节温器'],
 }
 
-function expandQuery(q: string): string[] {
-  const lower = q.toLowerCase()
-  for (const [, terms] of Object.entries(SYNONYMS)) {
-    if (terms.some(t => t.includes(lower) || lower.includes(t.split(' ')[0]))) {
+function getSynonyms(q: string): string[] {
+  const lower = q.toLowerCase().trim()
+  // Direct key match
+  if (SYNONYMS[lower]) return SYNONYMS[lower]
+  // Any synonym group that contains the query as substring
+  for (const terms of Object.values(SYNONYMS)) {
+    if (terms.some(t => t === lower || t.startsWith(lower) || lower.startsWith(t.split(' ')[0]))) {
       return terms
     }
   }
   return [lower]
 }
 
-// Bug 6 fix: smarter search — category match first, no description search for generic terms
-function matchesPart(part: Part, rawQuery: string): boolean {
-  if (!rawQuery) return true
-  const q = rawQuery.toLowerCase()
-  const terms = expandQuery(q)
+function matchesByName(part: Part, terms: string[]): boolean {
+  const name = part.name.toLowerCase()
+  const nameZh = (part.nameZh || '').toLowerCase()
+  const oem = part.oemNumber.toLowerCase()
+  return terms.some(t => name.includes(t) || nameZh.includes(t) || oem.includes(t))
+}
 
-  // Category exact match
-  const catMatch = terms.some(t => part.category.name.toLowerCase().includes(t) || part.category.nameZh.includes(t))
-  if (catMatch) return true
+function matchesByCategory(part: Part, terms: string[]): boolean {
+  const cat = part.category.name.toLowerCase()
+  const catZh = part.category.nameZh
+  return terms.some(t => cat.includes(t) || catZh.includes(t))
+}
 
-  // Part name match
-  const nameMatch = terms.some(t =>
-    part.name.toLowerCase().includes(t) ||
-    (part.nameZh || '').includes(t) ||
-    part.oemNumber.toLowerCase().includes(t)
-  )
-  return nameMatch
+// Name match takes priority; category is a last resort only if nothing matches by name
+function splitParts(parts: Part[], query: string, catFilter: string | null): { matching: Part[]; rest: Part[] } {
+  if (!query) {
+    const all = catFilter ? parts.filter(p => p.category.id === catFilter) : parts
+    return { matching: all, rest: [] }
+  }
+  const terms = getSynonyms(query)
+  const pool = catFilter ? parts.filter(p => p.category.id === catFilter) : parts
+  const byName = pool.filter(p => matchesByName(p, terms))
+  if (byName.length > 0) {
+    const matchIds = new Set(byName.map(p => p.id))
+    return { matching: byName, rest: pool.filter(p => !matchIds.has(p.id)) }
+  }
+  // Fallback: category match only if zero name matches
+  const byCat = pool.filter(p => matchesByCategory(p, terms))
+  const catIds = new Set(byCat.map(p => p.id))
+  return { matching: byCat, rest: pool.filter(p => !catIds.has(p.id)) }
 }
 
 function copyText(text: string) {
@@ -91,7 +115,7 @@ function legacyCopy(text: string) {
   document.body.appendChild(el); el.select(); document.execCommand('copy'); document.body.removeChild(el)
 }
 
-/* ── AI Modal — Bug 7 fix: input at top, proper sidebar, full vermillion button ── */
+/* ── AI Modal ── */
 const AI_LOADING = ['配件库 조회중...', 'Scanning catalog...', 'Cross-referencing OEM...', 'Getting your parts ready...']
 
 function AiModal({ vehicle, onClose }: { vehicle: Vehicle; onClose: () => void }) {
@@ -146,48 +170,35 @@ function AiModal({ vehicle, onClose }: { vehicle: Vehicle; onClose: () => void }
   }
 
   return (
-    // Bug 7 fix: dark backdrop, proper overlay
-    <div
-      className="modal-overlay"
-      onClick={onClose}
-      style={{ background: 'rgba(28,24,21,0.7)' }}
-    >
+    <div className="modal-overlay" onClick={onClose} style={{ background: 'rgba(28,24,21,0.7)' }}>
       <motion.div
         initial={{ x: 60, opacity: 0 }} animate={{ x: 0, opacity: 1 }}
         exit={{ x: 60, opacity: 0 }} transition={{ duration: 0.2, ease: 'easeOut' }}
         className="modal-panel" onClick={e => e.stopPropagation()}
       >
-        {/* Header */}
         <div className="flex items-center justify-between px-6 py-4 border-b border-paper-edge shrink-0">
           <div>
             <div className="font-mono text-2xs text-vermillion uppercase tracking-widest mb-0.5">询问 · Ask AI</div>
             <div className="font-mono text-2xs text-ink-mute">{vehicle.brand.name} {vehicle.model} {vehicle.year}</div>
           </div>
-          <button onClick={onClose} className="font-mono text-xs text-ink-mute hover:text-vermillion transition-colors px-2 py-1">
-            Esc ✕
-          </button>
+          <button onClick={onClose} className="font-mono text-xs text-ink-mute hover:text-vermillion transition-colors px-2 py-1">Esc ✕</button>
         </div>
-
-        {/* Bug 7 fix: input at TOP */}
         <div className="px-6 pt-5 pb-4 border-b border-paper-edge shrink-0 bg-paper-deep">
           <div className="flex gap-3">
             <input
               ref={inputRef} type="text" value={input}
               onChange={e => setInput(e.target.value)}
               onKeyDown={e => { if (e.key === 'Enter') ask() }}
-              placeholder={`e.g. front headlight, brake pads, oil filter…`}
+              placeholder="e.g. front headlight, brake pads, oil filter…"
               disabled={loading}
               className="flex-1 bg-white border border-paper-edge px-3 py-2.5 text-sm font-mono text-ink placeholder-ink-mute focus:outline-none focus:border-ink-soft disabled:opacity-50"
             />
-            {/* Bug 7 fix: full vermillion button */}
             <button onClick={ask} disabled={!input.trim() || loading}
               className="btn-vermillion shrink-0 disabled:opacity-30" style={{ padding: '8px 18px' }}>
               Ask →
             </button>
           </div>
         </div>
-
-        {/* Response area */}
         <div className="flex-1 overflow-y-auto px-6 py-5">
           {!response && !loading && (
             <p className="text-sm text-ink-mute leading-relaxed">
@@ -219,20 +230,15 @@ function AiModal({ vehicle, onClose }: { vehicle: Vehicle; onClose: () => void }
   )
 }
 
-/* ── Bug 5 fix: Shortcuts overlay — properly centered ── */
+/* ── Shortcuts overlay ── */
 function ShortcutsOverlay({ onClose }: { onClose: () => void }) {
   const groups = [
     { label: 'Global', items: [['?', 'Show this overlay'], ['Esc', 'Close modal / clear search'], ['g h', 'Go to homepage'], ['g c', 'Go to catalog'], ['g v', 'Go to VIN decode']] },
-    { label: 'Result Page', items: [['/', 'Focus search'], ['↑ ↓', 'Navigate rows'], ['Enter / C', 'Copy focused row OEM'], ['A', 'Open Ask · 询问 modal'], ['B', 'Go back'], ['1–9', 'Jump to category'], ['0', 'Reset to All']] },
+    { label: 'Result Page', items: [['/', 'Focus search'], ['↑ ↓', 'Navigate rows'], ['Enter / C', 'Copy focused OEM'], ['A', 'Open Ask · 询问'], ['B', 'Go back'], ['1–9', 'Jump to category'], ['0', 'Reset to All']] },
     { label: 'Ask Modal', items: [['Enter', 'Submit query'], ['Esc', 'Close modal']] },
   ]
   return (
-    // Bug 5 fix: centered overlay with correct padding override
-    <div
-      className="modal-overlay"
-      style={{ alignItems: 'center', justifyContent: 'center', paddingTop: 0, background: 'rgba(28,24,21,0.7)' }}
-      onClick={onClose}
-    >
+    <div className="modal-overlay" style={{ alignItems: 'center', justifyContent: 'center', paddingTop: 0, background: 'rgba(28,24,21,0.7)' }} onClick={onClose}>
       <motion.div
         initial={{ opacity: 0, scale: 0.96 }} animate={{ opacity: 1, scale: 1 }}
         exit={{ opacity: 0, scale: 0.96 }} transition={{ duration: 0.15 }}
@@ -263,9 +269,64 @@ function ShortcutsOverlay({ onClose }: { onClose: () => void }) {
   )
 }
 
+/* ── Part row ── */
+function PartRow({
+  part, isFocused, isHighlighted, copiedId, onFocus, onCopy, rowRef,
+}: {
+  part: Part; isFocused: boolean; isHighlighted: boolean; copiedId: string | null
+  onFocus: () => void; onCopy: () => void; rowRef: (el: HTMLDivElement | null) => void
+}) {
+  return (
+    <motion.div
+      layout
+      initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0, height: 0 }}
+      ref={rowRef}
+      tabIndex={0}
+      onFocus={onFocus}
+      onClick={onFocus}
+      className={`part-row-tr grid items-center outline-none`}
+      style={{
+        gridTemplateColumns: '2fr 1.2fr 0.8fr auto',
+        borderLeft: (isFocused || isHighlighted) ? '3px solid var(--vermillion)' : '3px solid transparent',
+        background: isFocused ? 'var(--paper-deep)' : undefined,
+      }}
+    >
+      <div className="py-4 pr-6">
+        {part.nameZh
+          ? <><div className="hanzi-primary">{part.nameZh}</div><div className="hanzi-secondary">{part.name}</div></>
+          : <div className="text-sm font-medium text-ink">{part.name}</div>
+        }
+        {part.position && (
+          <div className="font-mono text-2xs text-ink-mute mt-0.5">{part.position}</div>
+        )}
+      </div>
+
+      <div className="py-4 pr-6">
+        <span className={`oem-main${isFocused ? ' text-vermillion' : ''}`}>{part.oemNumber}</span>
+        {part.altNumbers && <div className="font-mono text-2xs text-gold mt-1">{part.altNumbers}</div>}
+      </div>
+
+      <div className="py-4 pr-6">
+        <span className="font-mono text-2xs text-ink-mute uppercase tracking-wide">{part.category.name}</span>
+        <div className="font-cjk text-2xs text-ink-mute mt-0.5" style={{ fontSize: '0.6rem' }}>{part.category.nameZh}</div>
+      </div>
+
+      <div className="py-4 flex justify-end">
+        <button
+          onClick={e => { e.stopPropagation(); onCopy() }}
+          className={`copy-btn${copiedId === part.id ? ' copied' : ''}`}
+        >
+          {copiedId === part.id ? '已复制 ✓' : '复制 ⎘'}
+        </button>
+      </div>
+    </motion.div>
+  )
+}
+
 /* ── Main ── */
 export default function PartsClient({ vehicle, categories, initialQuery = '' }: Props) {
   const router = useRouter()
+  const pathname = usePathname()
   const [selectedCat, setSelectedCat] = useState<string | null>(null)
   const [search, setSearch] = useState(initialQuery)
   const [focusedIdx, setFocusedIdx] = useState<number | null>(null)
@@ -274,22 +335,38 @@ export default function PartsClient({ vehicle, categories, initialQuery = '' }: 
   const [copiedId, setCopiedId] = useState<string | null>(null)
   const searchRef = useRef<HTMLInputElement>(null)
   const rowRefs = useRef<Map<string, HTMLDivElement>>(new Map())
-  // g-chord state
   const gPressed = useRef(false)
   const gTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+
+  // Auto-focus search only if no initial query (otherwise cursor goes to end of pre-filled value)
+  useEffect(() => {
+    if (searchRef.current) {
+      searchRef.current.focus()
+      const len = searchRef.current.value.length
+      searchRef.current.setSelectionRange(len, len)
+    }
+  }, [])
 
   const catsWithParts = useMemo(() => {
     const ids = new Set(vehicle.parts.map(p => p.category.id))
     return categories.filter(c => ids.has(c.id))
   }, [vehicle.parts, categories])
 
-  // Bug 6 fix: use smarter matchesPart
-  const filtered = useMemo(() =>
-    vehicle.parts.filter(p => {
-      if (selectedCat && p.category.id !== selectedCat) return false
-      return matchesPart(p, search)
-    }),
-  [vehicle.parts, selectedCat, search])
+  const { matching, rest } = useMemo(
+    () => splitParts(vehicle.parts, search, selectedCat),
+    [vehicle.parts, search, selectedCat]
+  )
+
+  // Flat ordered list for keyboard nav (matching first, then rest)
+  const allVisible = useMemo(() => [...matching, ...rest], [matching, rest])
+
+  function clearSearch() {
+    setSearch('')
+    setFocusedIdx(null)
+    // Remove ?q= from URL without reload
+    router.replace(pathname, { scroll: false })
+    setTimeout(() => searchRef.current?.focus(), 0)
+  }
 
   function copyRow(part: Part) {
     copyText(part.oemNumber)
@@ -299,14 +376,12 @@ export default function PartsClient({ vehicle, categories, initialQuery = '' }: 
     setTimeout(() => setCopiedId(null), 1400)
   }
 
-  // All categories including "All" as index 0
   const catList = useMemo(() => [null, ...catsWithParts.map(c => c.id)], [catsWithParts])
 
   const handleKeyboard = useCallback((e: KeyboardEvent) => {
     const tag = (e.target as HTMLElement).tagName
     const isInput = tag === 'INPUT' || tag === 'TEXTAREA'
 
-    // g-chord navigation
     if (e.key.toLowerCase() === 'g' && !isInput && !aiOpen && !shortcutsOpen) {
       gPressed.current = true
       if (gTimer.current) clearTimeout(gTimer.current)
@@ -321,18 +396,13 @@ export default function PartsClient({ vehicle, categories, initialQuery = '' }: 
       if (e.key.toLowerCase() === 'v') { router.push('/decode'); return }
     }
 
-    // Bug 5 fix: ? shortcut — works regardless of input state when overlay is open
-    if (e.key === '?' && !isInput) {
-      e.preventDefault()
-      setShortcutsOpen(s => !s)
-      return
-    }
+    if (e.key === '?' && !isInput) { e.preventDefault(); setShortcutsOpen(s => !s); return }
 
     if (e.key === 'Escape') {
       if (aiOpen) { setAiOpen(false); return }
       if (shortcutsOpen) { setShortcutsOpen(false); return }
-      if (isInput) { searchRef.current?.blur(); setSearch(''); setFocusedIdx(null); return }
-      if (search) { setSearch(''); setFocusedIdx(null); return }
+      if (isInput && search) { clearSearch(); return }
+      if (search) { clearSearch(); return }
       if (selectedCat) { setSelectedCat(null); return }
     }
 
@@ -342,7 +412,6 @@ export default function PartsClient({ vehicle, categories, initialQuery = '' }: 
     if (e.key.toLowerCase() === 'a') { setAiOpen(true); return }
     if (e.key.toLowerCase() === 'b') { router.back(); return }
 
-    // Number keys for category
     if (/^[0-9]$/.test(e.key)) {
       const idx = e.key === '0' ? 0 : parseInt(e.key) - 1
       if (idx === 0) { setSelectedCat(null); return }
@@ -351,129 +420,138 @@ export default function PartsClient({ vehicle, categories, initialQuery = '' }: 
       return
     }
 
-    // Row navigation
-    if (e.key === 'ArrowDown') { e.preventDefault(); setFocusedIdx(i => i === null ? 0 : Math.min(i + 1, filtered.length - 1)); return }
+    if (e.key === 'ArrowDown') { e.preventDefault(); setFocusedIdx(i => i === null ? 0 : Math.min(i + 1, allVisible.length - 1)); return }
     if (e.key === 'ArrowUp')   { e.preventDefault(); setFocusedIdx(i => i === null ? 0 : Math.max(i - 1, 0)); return }
-
-    // Copy focused row
     if ((e.key.toLowerCase() === 'c' || e.key === 'Enter') && focusedIdx !== null) {
-      const part = filtered[focusedIdx]; if (part) copyRow(part)
+      const part = allVisible[focusedIdx]; if (part) copyRow(part)
     }
-  }, [aiOpen, shortcutsOpen, search, selectedCat, focusedIdx, filtered, catsWithParts, router])
+  }, [aiOpen, shortcutsOpen, search, selectedCat, focusedIdx, allVisible, catsWithParts, router, pathname])
 
   useEffect(() => {
     document.addEventListener('keydown', handleKeyboard)
     return () => document.removeEventListener('keydown', handleKeyboard)
   }, [handleKeyboard])
 
+  const matchingIds = useMemo(() => new Set(matching.map(p => p.id)), [matching])
+
   return (
     <div className="min-h-screen bg-paper">
 
-      {/* ── Vehicle banner ── */}
-      <div className="border-b border-paper-edge bg-paper-deep px-12 py-6">
-        <button onClick={() => router.back()} className="font-mono text-2xs text-ink-mute hover:text-vermillion transition-colors mb-5 block">
-          ← Back
-        </button>
-        <div className="flex items-start justify-between">
-          <div>
-            <div className="font-mono text-2xs text-ink-mute uppercase tracking-widest mb-1.5">
-              {vehicle.brand.name}
-              {vehicle.brand.nameZh && <span className="font-cjk normal-case ml-2">{vehicle.brand.nameZh}</span>}
-            </div>
-            <h1 className="font-serif text-4xl font-bold text-ink mb-1" style={{ letterSpacing: '-0.02em' }}>
-              {vehicle.model}
-              {vehicle.modelZh && <span className="font-cjk text-2xl text-ink-mute ml-3">{vehicle.modelZh}</span>}
-            </h1>
-            <div className="flex items-center mt-4">
-              {([
-                { label: 'Year',   val: vehicle.year.toString() },
-                vehicle.engine ? { label: 'Engine', val: vehicle.engine } : null,
-                { label: 'Fuel',   val: vehicle.fuelType, cls: FUEL_CLASS[vehicle.fuelType] },
-                { label: 'Parts',  val: vehicle.parts.length.toString() },
-              ] as Array<{ label: string; val: string; cls?: string } | null>)
-                .filter(Boolean)
-                .map((item, i, arr) => (
-                  <div key={i} className="flex items-center">
-                    <div className="px-4 first:pl-0">
-                      <div className="font-mono text-2xs text-ink-mute uppercase tracking-widest mb-0.5">{item!.label}</div>
-                      {item!.cls
-                        ? <span className={`font-mono text-xs px-1.5 py-0.5 ${item!.cls}`}>{item!.val}</span>
-                        : <span className="font-mono text-xs text-ink font-medium">{item!.val}</span>}
-                    </div>
-                    {i < arr.length - 1 && <div className="h-8 w-px bg-paper-edge" />}
-                  </div>
-                ))}
-            </div>
+      {/* ── Vehicle banner — full width, breathing ── */}
+      <div className="bg-paper-deep border-b border-paper-edge">
+        <div className="px-12 py-10" style={{ maxWidth: 1400, margin: '0 auto' }}>
+          {/* Top row: back + ask */}
+          <div className="flex items-center justify-between mb-8">
+            <button onClick={() => router.back()}
+              className="font-mono text-2xs text-ink-mute hover:text-vermillion transition-colors uppercase tracking-widest">
+              ← Back to Decode
+            </button>
+            <button onClick={() => setAiOpen(true)}
+              className="font-mono text-2xs uppercase tracking-widest px-5 py-2 border transition-colors"
+              style={{ borderColor: 'var(--vermillion)', color: 'var(--vermillion)' }}
+              onMouseEnter={e => { const t = e.currentTarget; t.style.background = 'var(--vermillion)'; t.style.color = 'white' }}
+              onMouseLeave={e => { const t = e.currentTarget; t.style.background = 'transparent'; t.style.color = 'var(--vermillion)' }}>
+              询问 · ASK
+            </button>
           </div>
 
-          {/* Bug 8 fix: 验 character for 已验证 */}
-          <div className="flex flex-col items-end gap-2 shrink-0">
-            <div className="w-12 h-12 rounded-full border-2 flex items-center justify-center"
-              style={{ borderColor: 'var(--vermillion)', color: 'var(--vermillion)' }}>
-              <span className="font-cjk text-base font-bold">验</span>
+          {/* Brand + model */}
+          <div className="flex items-end justify-between gap-8">
+            <div>
+              <div className="font-mono text-xs text-ink-mute uppercase tracking-widest mb-2">
+                {vehicle.brand.name}
+                {vehicle.brand.nameZh && <span className="font-cjk normal-case ml-3 text-ink-mute">{vehicle.brand.nameZh}</span>}
+              </div>
+              <h1 className="font-serif font-bold text-ink leading-none mb-6"
+                style={{ fontSize: 'clamp(2.5rem, 5vw, 4.5rem)', letterSpacing: '-0.03em' }}>
+                {vehicle.model}
+                {vehicle.modelZh && <span className="font-cjk text-ink-mute ml-4" style={{ fontSize: '0.5em', letterSpacing: 0 }}>{vehicle.modelZh}</span>}
+              </h1>
+
+              {/* Metadata row */}
+              <div className="flex items-center">
+                {([
+                  { val: vehicle.year.toString() },
+                  vehicle.engine ? { val: vehicle.engine } : null,
+                  { val: vehicle.fuelType, cls: FUEL_CLASS[vehicle.fuelType] },
+                  { val: `${vehicle.parts.length} parts indexed` },
+                ] as Array<{ val: string; cls?: string } | null>)
+                  .filter(Boolean)
+                  .map((item, i, arr) => (
+                    <div key={i} className="flex items-center">
+                      {i > 0 && <div className="mx-4 h-4 w-px bg-paper-edge" />}
+                      {item!.cls
+                        ? <span className={`font-mono text-xs px-1.5 py-0.5 ${item!.cls}`}>{item!.val}</span>
+                        : <span className="font-mono text-sm text-ink-soft">{item!.val}</span>}
+                    </div>
+                  ))}
+              </div>
             </div>
-            <div className="font-mono text-2xs text-ink-mute">已验证 · VERIFIED</div>
+
+            {/* Quiet verification seal */}
+            <div className="flex flex-col items-center gap-1.5 shrink-0 opacity-60">
+              <div className="w-10 h-10 rounded-full border-2 flex items-center justify-center"
+                style={{ borderColor: 'var(--vermillion)', color: 'var(--vermillion)' }}>
+                <span className="font-cjk text-sm font-bold">验</span>
+              </div>
+              <div className="font-mono text-2xs text-ink-mute">已验证</div>
+            </div>
           </div>
         </div>
       </div>
 
-      {/* ── Sticky search strip ── */}
-      <div className="search-strip px-12 py-3">
-        <div className="flex items-end gap-4">
-          <div className="flex-1">
-            <div className="font-mono text-2xs text-ink-mute uppercase tracking-widest mb-2">配件搜索 · Parts Search</div>
-            <div className="vin-input-wrapper flex items-center">
-              <span className="font-mono text-sm text-ink-mute pl-3 select-none">⌕</span>
-              <input
-                ref={searchRef} type="text" value={search}
-                onChange={e => { setSearch(e.target.value); setFocusedIdx(null) }}
-                onKeyDown={e => { if (e.key === 'Escape') { setSearch(''); setFocusedIdx(null); e.currentTarget.blur() } }}
-                placeholder="Search by part name, OEM number, or 中文"
-                className="flex-1 px-3 py-2.5 text-sm bg-transparent text-ink placeholder-ink-mute focus:outline-none"
-              />
-              {search && (
-                <button onClick={() => { setSearch(''); setFocusedIdx(null); searchRef.current?.focus() }}
-                  className="font-mono text-xs text-ink-mute hover:text-vermillion px-3 transition-colors">✕</button>
-              )}
-            </div>
-          </div>
-          <button onClick={() => setAiOpen(true)}
-            className="font-mono text-xs uppercase tracking-widest px-4 py-2.5 border transition-colors shrink-0"
-            style={{ borderColor: 'var(--vermillion)', color: 'var(--vermillion)' }}
-            onMouseEnter={e => { const t = e.currentTarget; t.style.background = 'var(--vermillion)'; t.style.color = 'white' }}
-            onMouseLeave={e => { const t = e.currentTarget; t.style.background = 'transparent'; t.style.color = 'var(--vermillion)' }}>
-            询问 · Ask
-          </button>
-        </div>
-
-        {/* Category chips */}
-        <div className="cat-chips mt-2">
-          <button onClick={() => setSelectedCat(null)} className={`cat-chip ${!selectedCat ? 'active' : ''}`}>
-            All · {vehicle.parts.length}
-          </button>
-          {catsWithParts.map(cat => {
-            const count = vehicle.parts.filter(p => p.category.id === cat.id).length
-            return (
-              <button key={cat.id} onClick={() => setSelectedCat(cat.id === selectedCat ? null : cat.id)}
-                className={`cat-chip ${selectedCat === cat.id ? 'active' : ''}`}>
-                {cat.name} · {count}
+      {/* ── Search + categories strip ── */}
+      <div className="search-strip">
+        <div className="px-12 pt-4 pb-0" style={{ maxWidth: 1400, margin: '0 auto' }}>
+          {/* Search input */}
+          <div className="vin-input-wrapper flex items-center mb-3">
+            <span className="font-mono text-sm text-ink-mute pl-4 select-none">⌕</span>
+            <input
+              ref={searchRef}
+              type="text"
+              value={search}
+              onChange={e => { setSearch(e.target.value); setFocusedIdx(null) }}
+              onKeyDown={e => { if (e.key === 'Escape') clearSearch() }}
+              placeholder="Search by part name, OEM number, or 中文…"
+              className="flex-1 px-4 py-3 text-sm bg-transparent text-ink placeholder-ink-mute focus:outline-none"
+            />
+            {search && (
+              <button onClick={clearSearch}
+                className="font-mono text-xs text-ink-mute hover:text-vermillion px-4 transition-colors">
+                ✕
               </button>
-            )
-          })}
-        </div>
+            )}
+          </div>
 
-        <div className="font-mono text-2xs text-ink-mute mt-1.5">
-          {search || selectedCat
-            ? `Showing ${filtered.length} of ${vehicle.parts.length} parts${search ? ` matching "${search}"` : ''}`
-            : `All ${vehicle.parts.length} parts · ${vehicle.brand.name} ${vehicle.model} ${vehicle.year}`}
-          <button onClick={() => setShortcutsOpen(true)}
-            className="ml-4 hover:text-vermillion transition-colors underline underline-offset-2">? shortcuts</button>
+          {/* Category chips */}
+          <div className="cat-chips">
+            <button onClick={() => setSelectedCat(null)} className={`cat-chip ${!selectedCat ? 'active' : ''}`}>
+              All · {vehicle.parts.length}
+            </button>
+            {catsWithParts.map((cat, i) => {
+              const count = vehicle.parts.filter(p => p.category.id === cat.id).length
+              return (
+                <button key={cat.id} onClick={() => setSelectedCat(cat.id === selectedCat ? null : cat.id)}
+                  className={`cat-chip ${selectedCat === cat.id ? 'active' : ''}`}>
+                  <span className="mr-1 font-mono text-2xs text-ink-mute opacity-50">{i + 2}</span>
+                  {cat.name} · {count}
+                </button>
+              )
+            })}
+            <button onClick={() => setShortcutsOpen(true)}
+              className="ml-auto font-mono text-2xs text-ink-mute hover:text-vermillion transition-colors px-3 py-1.5 shrink-0">
+              ? shortcuts
+            </button>
+          </div>
         </div>
       </div>
 
       {/* ── Parts table ── */}
-      <div className="px-12 py-6">
-        <div className="grid pb-2 border-b border-paper-edge" style={{ gridTemplateColumns: '1fr 180px 110px 110px' }}>
+      <div className="px-12 py-8" style={{ maxWidth: 1400, margin: '0 auto' }}>
+
+        {/* Table header */}
+        <div className="grid pb-2 border-b-2 border-paper-edge"
+          style={{ gridTemplateColumns: '2fr 1.2fr 0.8fr auto' }}>
           <span className="font-mono text-2xs text-ink-mute uppercase tracking-widest">Part Name</span>
           <span className="font-mono text-2xs text-ink-mute uppercase tracking-widest">OEM Number</span>
           <span className="font-mono text-2xs text-ink-mute uppercase tracking-widest">Category</span>
@@ -481,61 +559,68 @@ export default function PartsClient({ vehicle, categories, initialQuery = '' }: 
         </div>
 
         <AnimatePresence mode="popLayout">
-          {filtered.map((part, i) => {
-            const isFocused = focusedIdx === i
+          {/* ── Matching section ── */}
+          {search && matching.length > 0 && (
+            <motion.div key="matching-header" initial={{ opacity: 0 }} animate={{ opacity: 1 }}>
+              <div className="flex items-center gap-3 pt-5 pb-3">
+                <span className="font-mono text-2xs uppercase tracking-widest" style={{ color: 'var(--vermillion)' }}>
+                  配件搜索 · MATCHING &ldquo;{search.toUpperCase()}&rdquo;
+                </span>
+                <span className="font-mono text-2xs text-ink-mute">· {matching.length} part{matching.length !== 1 ? 's' : ''} found</span>
+              </div>
+            </motion.div>
+          )}
+
+          {matching.map((part, i) => {
+            const globalIdx = i
             return (
-              <motion.div key={part.id} layout
-                initial={{ opacity: 0 }} animate={{ opacity: 1 }}
-                exit={{ opacity: 0, height: 0 }} transition={{ delay: Math.min(i * 0.01, 0.2) }}
-                ref={el => { if (el) rowRefs.current.set(part.id, el) }}
-                tabIndex={0}
-                onFocus={() => setFocusedIdx(i)}
-                onClick={() => setFocusedIdx(i)}
-                className={`part-row-tr grid items-center outline-none${isFocused ? ' bg-paper-deep' : ''}`}
-                style={{
-                  gridTemplateColumns: '1fr 180px 110px 110px',
-                  borderLeft: isFocused ? '3px solid var(--vermillion)' : '3px solid transparent',
-                }}
-              >
-                <div className="py-3 pr-4">
-                  {part.nameZh
-                    ? <><div className="hanzi-primary">{part.nameZh}</div><div className="hanzi-secondary">{part.name}</div></>
-                    : <div className="text-sm font-medium text-ink">{part.name}</div>
-                  }
-                  <div className="font-mono text-2xs text-ink-mute mt-0.5">
-                    {[part.position, vehicle.year.toString(), vehicle.fuelType].filter(Boolean).join(' · ')}
-                  </div>
-                </div>
+              <PartRow key={part.id}
+                part={part}
+                isFocused={focusedIdx === globalIdx}
+                isHighlighted={!!search && matchingIds.has(part.id)}
+                copiedId={copiedId}
+                onFocus={() => setFocusedIdx(globalIdx)}
+                onCopy={() => copyRow(part)}
+                rowRef={el => { if (el) rowRefs.current.set(part.id, el); else rowRefs.current.delete(part.id) }}
+              />
+            )
+          })}
 
-                <div className="py-3 pr-4">
-                  <span className={`oem-main${isFocused ? ' text-vermillion' : ''}`}>{part.oemNumber}</span>
-                  {part.altNumbers && <div className="font-mono text-2xs text-gold mt-0.5">{part.altNumbers}</div>}
-                </div>
+          {/* ── Rest section (only when search active) ── */}
+          {search && rest.length > 0 && (
+            <motion.div key="rest-header" initial={{ opacity: 0 }} animate={{ opacity: 1 }}>
+              <div className="border-t-2 border-paper-edge mt-4 pt-5 pb-3 flex items-center gap-3">
+                <span className="font-mono text-2xs text-ink-mute uppercase tracking-widest">
+                  其他配件 · ALL OTHER PARTS
+                </span>
+                <span className="font-mono text-2xs text-ink-mute">· {rest.length}</span>
+              </div>
+            </motion.div>
+          )}
 
-                <div className="py-3 pr-4">
-                  <span className="font-mono text-2xs text-ink-mute uppercase tracking-wide">{part.category.name}</span>
-                </div>
-
-                <div className="py-3 flex justify-end">
-                  <button
-                    onClick={e => { e.stopPropagation(); copyRow(part) }}
-                    className={`copy-btn${copiedId === part.id ? ' copied' : ''}`}
-                  >
-                    {copiedId === part.id ? '已复制 ✓' : '复制 ⎘'}
-                  </button>
-                </div>
-              </motion.div>
+          {rest.map((part, i) => {
+            const globalIdx = matching.length + i
+            return (
+              <PartRow key={part.id}
+                part={part}
+                isFocused={focusedIdx === globalIdx}
+                isHighlighted={false}
+                copiedId={copiedId}
+                onFocus={() => setFocusedIdx(globalIdx)}
+                onCopy={() => copyRow(part)}
+                rowRef={el => { if (el) rowRefs.current.set(part.id, el); else rowRefs.current.delete(part.id) }}
+              />
             )
           })}
         </AnimatePresence>
 
-        {/* Feature 4: proper no-results state */}
-        {filtered.length === 0 && (
-          <div className="flex flex-col items-center py-20 text-center">
-            <p className="text-ink-soft text-sm">
-              No parts matching <span className="font-mono text-ink">"{search}"</span> found for {vehicle.brand.name} {vehicle.model} {vehicle.year}.
+        {/* No results */}
+        {matching.length === 0 && rest.length === 0 && (
+          <div className="flex flex-col items-center py-24 text-center">
+            <p className="text-ink-soft text-sm mb-5">
+              No parts matching <span className="font-mono text-ink">&ldquo;{search}&rdquo;</span> found for {vehicle.brand.name} {vehicle.model} {vehicle.year}.
             </p>
-            <div className="flex items-center gap-6 mt-5">
+            <div className="flex items-center gap-6">
               <button onClick={() => setAiOpen(true)}
                 className="btn-vermillion text-xs" style={{ padding: '8px 16px' }}>
                 Describe with Ask · 询问 →
@@ -552,7 +637,6 @@ export default function PartsClient({ vehicle, categories, initialQuery = '' }: 
       <AnimatePresence>
         {aiOpen && <AiModal vehicle={vehicle} onClose={() => setAiOpen(false)} />}
       </AnimatePresence>
-
       <AnimatePresence>
         {shortcutsOpen && <ShortcutsOverlay onClose={() => setShortcutsOpen(false)} />}
       </AnimatePresence>
