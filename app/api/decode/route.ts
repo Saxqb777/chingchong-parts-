@@ -76,14 +76,15 @@ export async function GET(req: NextRequest) {
   try {
     const msg = await anthropic.messages.create({
       model: 'claude-sonnet-4-6',
-      max_tokens: 300,
-      system: PARTS_SYSTEM_PROMPT,
+      max_tokens: 150,
+      system: 'You identify Chinese vehicles from VIN data. Reply in plain text only — no markdown, no bold, no asterisks. One sentence maximum.',
       messages: [{
         role: 'user',
-        content: `VIN: ${vin}\nWMI=${decoded.wmi}, Year digit=${decoded.year}, Country=${decoded.country}\nIn 2 sentences: what vehicle is this and what year? Be direct and specific.`,
+        content: `VIN: ${vin}. WMI=${decoded.wmi}, year digit=${decoded.year}, country=${decoded.country}. What vehicle is this and what year?`,
       }],
     })
-    aiSummary = msg.content[0].type === 'text' ? msg.content[0].text : ''
+    const raw = msg.content[0].type === 'text' ? msg.content[0].text : ''
+    aiSummary = raw.replace(/\*\*/g, '').replace(/\*/g, '').trim()
   } catch {
     aiSummary = `WMI ${decoded.wmi} — ${decoded.manufacturer}, ${decoded.country}. Year: ${decoded.year || 'unknown'}.`
   }

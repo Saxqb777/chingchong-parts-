@@ -84,6 +84,91 @@ const EPC_BRAND: Record<string, string> = {
   wuling:    'Wuling',
 }
 
+// Chinese part name → English translation (keyword-based, longest match first)
+const ZH_EN: Array<[string, string]> = [
+  // Engine
+  ['发动机总成', 'Engine Assembly'], ['发动机', 'Engine'], ['缸体', 'Engine Block'],
+  ['活塞环', 'Piston Ring'], ['活塞', 'Piston'], ['气门弹簧', 'Valve Spring'],
+  ['气门', 'Valve'], ['凸轮轴', 'Camshaft'], ['曲轴', 'Crankshaft'],
+  ['正时链条', 'Timing Chain'], ['正时皮带', 'Timing Belt'], ['正时', 'Timing'],
+  ['火花塞', 'Spark Plug'], ['喷油嘴', 'Fuel Injector'], ['喷油', 'Fuel Injection'],
+  ['机油泵', 'Oil Pump'], ['机油滤清器', 'Oil Filter'], ['机油盖', 'Oil Cap'],
+  ['机油', 'Engine Oil'], ['进气歧管', 'Intake Manifold'], ['排气歧管', 'Exhaust Manifold'],
+  // Brakes
+  ['刹车盘', 'Brake Disc'], ['刹车片', 'Brake Pad'], ['刹车', 'Brake'],
+  ['制动盘', 'Brake Disc'], ['制动片', 'Brake Pad'], ['制动泵', 'Brake Pump'],
+  ['制动钳', 'Brake Caliper'], ['制动', 'Brake'], ['卡钳', 'Caliper'],
+  ['手刹线', 'Handbrake Cable'], ['手刹', 'Handbrake'],
+  // Suspension
+  ['减振器', 'Shock Absorber'], ['减震器', 'Shock Absorber'],
+  ['弹簧', 'Coil Spring'], ['摆臂', 'Control Arm'], ['球头', 'Ball Joint'],
+  ['横拉杆', 'Tie Rod'], ['纵拉杆', 'Trailing Arm'], ['拉杆', 'Tie Rod'],
+  ['轴承', 'Bearing'], ['衬套', 'Bushing'], ['支柱', 'Strut'],
+  ['稳定杆', 'Sway Bar'], ['下摆臂', 'Lower Control Arm'],
+  // Steering
+  ['方向盘', 'Steering Wheel'], ['转向柱', 'Steering Column'],
+  ['转向泵', 'Power Steering Pump'], ['转向机', 'Steering Rack'],
+  ['助力泵', 'Power Steering Pump'], ['齿条', 'Steering Rack'],
+  // Cooling
+  ['散热器', 'Radiator'], ['水泵', 'Water Pump'], ['节温器', 'Thermostat'],
+  ['冷凝器', 'AC Condenser'], ['膨胀壶', 'Coolant Reservoir'],
+  ['冷却液', 'Coolant'], ['风扇', 'Cooling Fan'],
+  // Transmission
+  ['变速箱', 'Gearbox'], ['变速器', 'Transmission'], ['离合器', 'Clutch'],
+  ['传动轴', 'Drive Shaft'], ['差速器', 'Differential'], ['换挡', 'Gear Shift'],
+  ['半轴', 'Axle Shaft'], ['等速万向节', 'CV Joint'], ['万向节', 'Universal Joint'],
+  // Electrical
+  ['蓄电池', 'Battery'], ['电池', 'Battery'], ['发电机', 'Alternator'],
+  ['起动机', 'Starter Motor'], ['继电器', 'Relay'], ['保险丝', 'Fuse'],
+  ['线束', 'Wiring Harness'], ['传感器', 'Sensor'], ['开关', 'Switch'],
+  ['电机', 'Motor'], ['灯泡', 'Bulb'],
+  // Lights
+  ['前大灯', 'Headlight'], ['后大灯', 'Rear Light'], ['大灯', 'Headlight'],
+  ['尾灯', 'Tail Light'], ['雾灯', 'Fog Light'], ['转向灯', 'Turn Signal'],
+  ['刹车灯', 'Brake Light'], ['灯罩', 'Lamp Cover'], ['灯具', 'Light Assembly'],
+  // Body & Exterior
+  ['前保险杠', 'Front Bumper'], ['后保险杠', 'Rear Bumper'], ['保险杠', 'Bumper'],
+  ['前舱盖', 'Hood'], ['引擎盖', 'Hood'], ['前盖', 'Hood'],
+  ['翼子板', 'Fender'], ['叶子板', 'Fender'],
+  ['车门', 'Door'], ['门板', 'Door Panel'], ['门铰链', 'Door Hinge'],
+  ['后备箱盖', 'Trunk Lid'], ['行李箱', 'Trunk'],
+  ['缓冲块', 'Bump Stop'], ['缓冲', 'Buffer'],
+  // Fuel system
+  ['油箱', 'Fuel Tank'], ['燃油泵', 'Fuel Pump'], ['燃油滤清器', 'Fuel Filter'],
+  ['碳罐', 'Charcoal Canister'],
+  // Exhaust
+  ['排气管', 'Exhaust Pipe'], ['消声器', 'Muffler'], ['催化器', 'Catalytic Converter'],
+  ['尾管', 'Exhaust Tip'], ['排气', 'Exhaust'],
+  // Interior
+  ['座椅', 'Seat'], ['安全带', 'Seat Belt'], ['气囊', 'Airbag'],
+  ['仪表盘', 'Dashboard'], ['中控台', 'Center Console'], ['顶棚', 'Headliner'],
+  ['地毯', 'Floor Mat'], ['方向盘', 'Steering Wheel'],
+  // HVAC
+  ['空调压缩机', 'AC Compressor'], ['压缩机', 'Compressor'],
+  ['蒸发器', 'Evaporator'], ['暖风机', 'Heater Core'], ['出风口', 'Air Vent'],
+  ['空调', 'Air Conditioning'],
+  // Wipers & Glass
+  ['雨刮器', 'Wiper'], ['雨刷', 'Wiper Blade'], ['刮水器', 'Wiper'],
+  ['风挡玻璃', 'Windshield'], ['挡风玻璃', 'Windshield'],
+  ['后视镜', 'Side Mirror'], ['后视', 'Rear View'],
+  // Wheels & Tyres
+  ['轮毂', 'Wheel Hub'], ['轮胎', 'Tyre'], ['轮毂螺母', 'Wheel Nut'],
+  // Filters
+  ['空气滤清器', 'Air Filter'], ['空气滤芯', 'Air Filter'],
+  ['滤清器', 'Filter'], ['滤芯', 'Filter'],
+  // Gaskets & Seals
+  ['缸盖垫', 'Head Gasket'], ['油封', 'Oil Seal'], ['密封圈', 'O-Ring'],
+  ['垫片', 'Gasket'], ['密封', 'Seal'],
+]
+
+function translateZh(nameZh: string): string {
+  if (!nameZh) return nameZh
+  for (const [zh, en] of ZH_EN) {
+    if (nameZh.includes(zh)) return en
+  }
+  return nameZh
+}
+
 // Parse the @-delimited data string returned by the API
 function parseData(data: string): ApiPart[] {
   if (!data || typeof data !== 'string') return []
@@ -99,7 +184,7 @@ function parseData(data: string): ApiPart[] {
         return {
           oemNumber: segs[0],
           nameZh,
-          name:      nameZh,      // use Chinese as primary; English translation not available
+          name:      translateZh(nameZh),
           category:  cat,
           categoryZh:catZh,
           matched:   segs[2] === 'M',
@@ -110,7 +195,7 @@ function parseData(data: string): ApiPart[] {
       return {
         oemNumber: '',
         nameZh:    item,
-        name:      item,
+        name:      translateZh(item),
         category:  cat,
         categoryZh:catZh,
         matched:   false,

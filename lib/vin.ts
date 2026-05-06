@@ -84,7 +84,11 @@ export function decodeVin(vin: string): VinDecodeResult {
     country: raw[0] === 'L' ? 'China' : 'Unknown',
   }
 
-  const year = YEAR_MAP[yearChar] || null
+  // For modern Chinese vehicles (L-prefix with known brand), the post-2010 cycle is correct.
+  // Letters like 'R' map to both 1994 and 2024 — prefer 2024 for L-prefix WMIs.
+  const rawYear = YEAR_MAP[yearChar] || null
+  const isModernChinese = raw.startsWith('L') && info.brand !== 'Unknown'
+  const year = rawYear && rawYear < 2010 && isModernChinese ? rawYear + 30 : rawYear
 
   const confidence: 'HIGH' | 'MEDIUM' | 'LOW' =
     info.brand !== 'Unknown' && year ? 'HIGH'
