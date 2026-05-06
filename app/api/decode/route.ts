@@ -53,12 +53,10 @@ export async function GET(req: NextRequest) {
         where: { oemNumber: part.oemNumber },
         update: { name: part.name, nameZh: part.nameZh || null, categoryId: cat.id },
         create: {
-          name:       part.name,
-          nameZh:     part.nameZh || null,
-          oemNumber:  part.oemNumber,
-          altNumbers: part.altNumbers || null,
-          position:   part.position  || null,
-          vehicleId:  vehicle.id,
+          name:      part.name,
+          nameZh:    part.nameZh || null,
+          oemNumber: part.oemNumber,
+          vehicleId: vehicle.id,
           categoryId: cat.id,
         },
       })
