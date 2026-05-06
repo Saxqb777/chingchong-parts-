@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/db'
 import { anthropic, PARTS_SYSTEM_PROMPT } from '@/lib/claude'
 import { decodeVin } from '@/lib/vin'
-import { lookupVin } from '@/lib/vinapi'
+import { lookupVin, ApiPart } from '@/lib/vinapi'
 
 export async function GET(req: NextRequest) {
   const vin = req.nextUrl.searchParams.get('vin')?.trim().toUpperCase()
@@ -10,83 +10,65 @@ export async function GET(req: NextRequest) {
 
   const decoded = decodeVin(vin)
 
-  // ── 1. Try 17vin API for real live parts data ─────────────────────────
+  // ── 1. Try 17vin API for live parts ──────────────────────────────────
   const apiResult = await lookupVin(vin)
 
-  let matchedVehicles: Array<{
-    id: string; model: string; year: number; engine: string | null
-    fuelType: string; bodyType: string | null
-    brand: { name: string; nameZh: string }
-    _count: { parts: number }
-  }> = []
+  let parts: ApiPart[] = []
+  let carInfo = {
+    brand:    decoded.brand.split('/')[0].trim(),
+    brandZh:  '',
+    model:    decoded.brand,
+    year:     decoded.year || new Date().getFullYear(),
+    fuelType: 'Petrol',
+    epc:      '',
+    vehicleId: '',
+  }
 
   if (apiResult && apiResult.parts.length > 0) {
-    const brandName = apiResult.brandName || decoded.brand.split('/')[0].trim()
-    const brand = await prisma.brand.upsert({
-      where: { name: brandName },
-      update: {},
-      create: { name: brandName, nameZh: '', country: decoded.country },
-    })
+    parts = apiResult.parts
+    carInfo.brand  = apiResult.brandName
+    carInfo.epc    = apiResult.epc
 
-    // Key vehicles by first 11 chars of VIN (WMI + VDS)
-    const vinKey = vin.substring(0, 11)
-    const vehicle = await prisma.vehicle.upsert({
-      where: { vinPrefix: vinKey },
-      update: { updatedAt: new Date() },
-      create: {
-        model:     decoded.brand,
-        year:      decoded.year || new Date().getFullYear(),
-        fuelType:  'Petrol',
-        vinPrefix: vinKey,
-        brandId:   brand.id,
-      },
-    })
-
-    for (const part of apiResult.parts) {
-      if (!part.oemNumber) continue
-      const cat = await prisma.partCategory.upsert({
-        where: { name: part.category },
-        update: {},
-        create: { name: part.category, nameZh: part.categoryZh || part.category, icon: 'box' },
-      })
-      await prisma.part.upsert({
-        where: { oemNumber: part.oemNumber },
-        update: { name: part.name, nameZh: part.nameZh || null, categoryId: cat.id },
-        create: {
-          name:      part.name,
-          nameZh:    part.nameZh || null,
-          oemNumber: part.oemNumber,
-          vehicleId: vehicle.id,
-          categoryId: cat.id,
-        },
-      })
-    }
-
-    matchedVehicles = [{
-      id:       vehicle.id,
-      model:    vehicle.model,
-      year:     vehicle.year,
-      engine:   vehicle.engine,
-      fuelType: vehicle.fuelType,
-      bodyType: vehicle.bodyType,
-      brand:    { name: brand.name, nameZh: brand.nameZh },
-      _count:   { parts: apiResult.parts.length },
-    }]
+    // Save to DB in background (don't block the response on it)
+    saveToDb(vin, decoded, apiResult).then(vid => { if (vid) carInfo.vehicleId = vid }).catch(() => {})
   } else {
-    // ── 2. Fallback: search existing cached DB ────────────────────────
-    matchedVehicles = await prisma.vehicle.findMany({
+    // ── 2. Fallback: load parts from cached DB ────────────────────────
+    const vinKey = vin.substring(0, 11)
+    const cached = await prisma.vehicle.findFirst({
       where: {
         OR: [
-          { vinPrefix: { not: null, startsWith: vin.substring(0, 6) } },
-          { vinPrefix: { not: null, startsWith: vin.substring(0, 5) } },
-          { vinPrefix: { not: null, startsWith: vin.substring(0, 4) } },
-          { vinPrefix: { not: null, startsWith: vin.substring(0, 3) } },
-          { brand: { name: { contains: decoded.brand.split('/')[0].trim() } } },
+          { vinPrefix: vinKey },
+          { vinPrefix: { startsWith: vin.substring(0, 8) } },
+          { vinPrefix: { startsWith: vin.substring(0, 6) } },
+          { vinPrefix: { startsWith: vin.substring(0, 3) } },
         ],
       },
-      include: { brand: true, _count: { select: { parts: true } } },
-      take: 5,
+      include: {
+        brand: true,
+        parts: { include: { category: true } },
+      },
+      orderBy: { updatedAt: 'desc' },
     })
+
+    if (cached && cached.parts.length > 0) {
+      carInfo = {
+        brand:     cached.brand.name,
+        brandZh:   cached.brand.nameZh,
+        model:     cached.model,
+        year:      cached.year,
+        fuelType:  cached.fuelType,
+        epc:       '',
+        vehicleId: cached.id,
+      }
+      parts = cached.parts.map(p => ({
+        name:       p.name,
+        nameZh:     p.nameZh || '',
+        oemNumber:  p.oemNumber,
+        category:   p.category.name,
+        categoryZh: p.category.nameZh,
+        matched:    false,
+      }))
+    }
   }
 
   // ── 3. AI summary ─────────────────────────────────────────────────────
@@ -94,17 +76,64 @@ export async function GET(req: NextRequest) {
   try {
     const msg = await anthropic.messages.create({
       model: 'claude-sonnet-4-6',
-      max_tokens: 400,
+      max_tokens: 300,
       system: PARTS_SYSTEM_PROMPT,
       messages: [{
         role: 'user',
-        content: `Decode this VIN: ${vin}\nPreliminary decode: Brand=${decoded.brand}, WMI=${decoded.wmi}, Year=${decoded.year}, Country=${decoded.country}\nExplain in 3-4 sentences what vehicle this likely is. Be specific about WMI, year digit, and VDS section. Keep it concise.`,
+        content: `VIN: ${vin}\nWMI=${decoded.wmi}, Year digit=${decoded.year}, Country=${decoded.country}\nIn 2 sentences: what vehicle is this and what year? Be direct and specific.`,
       }],
     })
     aiSummary = msg.content[0].type === 'text' ? msg.content[0].text : ''
   } catch {
-    aiSummary = `VIN ${vin} — WMI ${decoded.wmi} identifies this as a ${decoded.manufacturer} vehicle built in ${decoded.country}. Model year: ${decoded.year || 'undetermined'}. Confidence: ${decoded.confidence}.`
+    aiSummary = `WMI ${decoded.wmi} — ${decoded.manufacturer}, ${decoded.country}. Year: ${decoded.year || 'unknown'}.`
   }
 
-  return NextResponse.json({ vin: decoded, matchedVehicles, aiSummary })
+  return NextResponse.json({ vin: decoded, carInfo, parts, aiSummary })
+}
+
+async function saveToDb(
+  vin: string,
+  decoded: ReturnType<typeof decodeVin>,
+  apiResult: NonNullable<Awaited<ReturnType<typeof lookupVin>>>
+): Promise<string> {
+  const brand = await prisma.brand.upsert({
+    where: { name: apiResult.brandName },
+    update: {},
+    create: { name: apiResult.brandName, nameZh: '', country: decoded.country },
+  })
+
+  const vinKey = vin.substring(0, 11)
+  const vehicle = await prisma.vehicle.upsert({
+    where: { vinPrefix: vinKey },
+    update: { updatedAt: new Date() },
+    create: {
+      model:     decoded.brand,
+      year:      decoded.year || new Date().getFullYear(),
+      fuelType:  'Petrol',
+      vinPrefix: vinKey,
+      brandId:   brand.id,
+    },
+  })
+
+  for (const part of apiResult.parts) {
+    if (!part.oemNumber) continue
+    const cat = await prisma.partCategory.upsert({
+      where: { name: part.category },
+      update: {},
+      create: { name: part.category, nameZh: part.categoryZh || part.category, icon: 'box' },
+    })
+    await prisma.part.upsert({
+      where: { oemNumber: part.oemNumber },
+      update: { name: part.name, nameZh: part.nameZh || null, categoryId: cat.id },
+      create: {
+        name:       part.name,
+        nameZh:     part.nameZh || null,
+        oemNumber:  part.oemNumber,
+        vehicleId:  vehicle.id,
+        categoryId: cat.id,
+      },
+    })
+  }
+
+  return vehicle.id
 }

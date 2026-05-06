@@ -1,11 +1,20 @@
 'use client'
-import { useState, useEffect } from 'react'
-import { useSearchParams, useRouter } from 'next/navigation'
+import { useState, useEffect, useMemo, useRef, useCallback } from 'react'
+import { useSearchParams, useRouter, usePathname } from 'next/navigation'
 import { motion, AnimatePresence } from 'framer-motion'
 
+interface ApiPart {
+  name: string; nameZh: string; oemNumber: string
+  category: string; categoryZh: string; matched: boolean
+}
+interface CarInfo {
+  brand: string; brandZh: string; model: string; year: number
+  fuelType: string; epc: string; vehicleId: string
+}
 interface DecodeResult {
   vin: { raw: string; wmi: string; vds: string; vis: string; brand: string; manufacturer: string; country: string; year: number | null; confidence: string }
-  matchedVehicles: Array<{ id: string; model: string; year: number; engine: string | null; fuelType: string; bodyType: string | null; brand: { name: string; nameZh: string }; _count: { parts: number } }>
+  carInfo: CarInfo
+  parts: ApiPart[]
   aiSummary: string
 }
 
@@ -15,32 +24,80 @@ const SEG_LABELS = [
   { key: 'vis', label: 'VIS', sub: 'Year · Serial', color: '#5C7A3E' },
 ]
 
+const FUEL_CLASS: Record<string, string> = {
+  Electric: 'fuel-ev', Hybrid: 'fuel-hybrid', Diesel: 'fuel-diesel', Petrol: 'fuel-petrol',
+}
+
+const SYNONYMS: Record<string, string[]> = {
+  headlight: ['headlight', 'head lamp', '前大灯', '前照灯', '大灯'],
+  taillight: ['taillight', 'tail lamp', '尾灯'],
+  fog: ['fog light', 'fog lamp', '雾灯'],
+  'brake pad': ['brake pad', '刹车片', '制动片'],
+  brake: ['brake', '刹车', '制动'],
+  'oil filter': ['oil filter', '机油滤清器', '机油滤芯'],
+  'air filter': ['air filter', '空气滤清器'],
+  'spark plug': ['spark plug', '火花塞'],
+  alternator: ['alternator', '发电机'],
+  starter: ['starter', '起动机'],
+  radiator: ['radiator', '散热器', '水箱'],
+  'water pump': ['water pump', '水泵'],
+  'shock absorber': ['shock absorber', '减震器', '减振器'],
+  bumper: ['bumper', '保险杠'],
+  fender: ['fender', '翼子板'],
+  engine: ['engine', '发动机'],
+  transmission: ['transmission', 'gearbox', '变速箱'],
+  battery: ['battery', '电池', '蓄电池'],
+  wiper: ['wiper', '雨刷', '刮水器'],
+}
+
+function getSynonyms(q: string): string[] {
+  const lower = q.toLowerCase().trim()
+  if (SYNONYMS[lower]) return SYNONYMS[lower]
+  for (const terms of Object.values(SYNONYMS)) {
+    if (terms.some(t => t === lower || t.startsWith(lower) || lower.startsWith(t.split(' ')[0]))) return terms
+  }
+  return [lower]
+}
+
+function copyText(text: string) {
+  if (navigator.clipboard?.writeText) navigator.clipboard.writeText(text).catch(() => legacyCopy(text))
+  else legacyCopy(text)
+}
+function legacyCopy(text: string) {
+  const el = document.createElement('textarea')
+  el.value = text; el.style.cssText = 'position:fixed;opacity:0'
+  document.body.appendChild(el); el.select(); document.execCommand('copy'); document.body.removeChild(el)
+}
+
 export default function DecodeClient() {
   const params = useSearchParams()
   const router = useRouter()
+  const pathname = usePathname()
   const [vin, setVin] = useState(params.get('vin') || '')
-  const [partQuery, setPartQuery] = useState(params.get('q') || '')
   const [loading, setLoading] = useState(false)
   const [result, setResult] = useState<DecodeResult | null>(null)
   const [error, setError] = useState('')
   const [scanChars, setScanChars] = useState<string[]>([])
   const [stamped, setStamped] = useState(false)
 
+  // Parts state
+  const [search, setSearch] = useState(params.get('q') || '')
+  const [selectedCat, setSelectedCat] = useState<string | null>(null)
+  const [copiedOem, setCopiedOem] = useState<string | null>(null)
+  const searchRef = useRef<HTMLInputElement>(null)
+
   useEffect(() => { const v = params.get('vin'); if (v) decode(v) }, [])
 
   async function decode(vinVal?: string) {
-    const v = (vinVal || vin).trim()
-    if (!v) return
-    // Re-read from params each call so it's never stale (Suspense boundary can delay initial read)
-    const currentPartQuery = params.get('q') || ''
-    setPartQuery(currentPartQuery)
-    const partQuery = currentPartQuery
+    const v = (vinVal || vin).trim().toUpperCase()
+    if (!v || v.length < 5) return
+    setVin(v)
     setLoading(true); setError(''); setResult(null); setScanChars([]); setStamped(false)
+    setSelectedCat(null)
 
-    // Animate characters
     const letters = v.split('')
     for (let i = 0; i < letters.length; i++) {
-      await new Promise(r => setTimeout(r, 50))
+      await new Promise(r => setTimeout(r, 45))
       setScanChars(c => [...c, letters[i]])
     }
 
@@ -48,20 +105,47 @@ export default function DecodeClient() {
       const res = await fetch(`/api/decode?vin=${encodeURIComponent(v)}`)
       const data = await res.json()
       if (!res.ok) throw new Error(data.error || 'Decode failed')
-      // If we came with a part query and there's exactly one vehicle match, go straight there
-      if (partQuery && data.matchedVehicles?.length === 1) {
-        router.push(`/parts/${data.matchedVehicles[0].id}?q=${encodeURIComponent(partQuery)}`)
-        return
-      }
-      await new Promise(r => setTimeout(r, 100))
+      await new Promise(r => setTimeout(r, 80))
       setStamped(true)
-      await new Promise(r => setTimeout(r, 120))
+      await new Promise(r => setTimeout(r, 100))
       setResult(data)
+      setTimeout(() => searchRef.current?.focus(), 200)
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : 'Decode failed')
-    } finally {
-      setLoading(false)
+    } finally { setLoading(false) }
+  }
+
+  const categories = useMemo(() => {
+    if (!result) return []
+    const seen = new Map<string, string>()
+    for (const p of result.parts) {
+      if (!seen.has(p.category)) seen.set(p.category, p.categoryZh)
     }
+    return Array.from(seen.entries()).map(([name, nameZh]) => ({ name, nameZh }))
+  }, [result])
+
+  const filteredParts = useMemo(() => {
+    if (!result) return { matching: [], rest: [] }
+    const pool = selectedCat ? result.parts.filter(p => p.category === selectedCat) : result.parts
+    if (!search.trim()) return { matching: pool, rest: [] }
+    const terms = getSynonyms(search)
+    const matching = pool.filter(p => {
+      const n = p.name.toLowerCase(); const zh = p.nameZh.toLowerCase(); const oem = p.oemNumber.toLowerCase()
+      return terms.some(t => n.includes(t) || zh.includes(t) || oem.includes(t))
+    })
+    if (matching.length > 0) {
+      const ids = new Set(matching.map(p => p.oemNumber))
+      return { matching, rest: pool.filter(p => !ids.has(p.oemNumber)) }
+    }
+    const byCat = pool.filter(p => terms.some(t => p.category.toLowerCase().includes(t) || p.categoryZh.includes(t)))
+    const catIds = new Set(byCat.map(p => p.oemNumber))
+    return { matching: byCat, rest: pool.filter(p => !catIds.has(p.oemNumber)) }
+  }, [result, search, selectedCat])
+
+  function doCopy(oem: string) {
+    copyText(oem)
+    setCopiedOem(oem)
+    setTimeout(() => setCopiedOem(null), 1400)
   }
 
   const segOf = (i: number) => i < 3 ? 'wmi' : i < 9 ? 'vds' : 'vis'
@@ -69,193 +153,262 @@ export default function DecodeClient() {
 
   return (
     <div className="min-h-screen bg-paper">
-      <div className="grid border-b border-paper-edge" style={{ gridTemplateColumns: '1fr 380px', minHeight: 'calc(100vh - 52px)' }}>
 
-        {/* ── Left: Input panel ── */}
-        <div className="px-12 py-14 border-r border-paper-edge">
-
-          <div className="flex items-center gap-3 mb-10">
+      {/* ── Top: VIN input strip ── */}
+      <div className="border-b border-paper-edge bg-paper-deep">
+        <div className="px-12 py-8" style={{ maxWidth: 1400, margin: '0 auto' }}>
+          <div className="flex items-center gap-3 mb-5">
             <div className="h-px w-8 bg-paper-edge" />
             <span className="font-mono text-2xs text-ink-mute uppercase tracking-widest">VIN · Chassis Decode</span>
           </div>
-
-          <h1 className="font-serif text-4xl font-bold text-ink mb-2" style={{ letterSpacing: '-0.02em' }}>
-            Identify the vehicle.
-          </h1>
-          <p className="text-ink-soft text-sm mb-10">
-            11–17 character VIN from door jamb, dashboard, or registration.
-          </p>
-
-          {/* Input */}
-          <form onSubmit={e => { e.preventDefault(); decode() }}>
-            <div className="vin-input-wrapper mb-px">
-              <div className="flex items-center">
-                <span className="font-mono text-2xs text-ink-mute pl-4 select-none border-r border-paper-edge pr-3 mr-1">VIN</span>
-                <input
-                  type="text" value={vin}
-                  onChange={e => setVin(e.target.value.toUpperCase())}
-                  placeholder="LGXCE4GB2M1234567"
-                  maxLength={17}
-                  className="flex-1 px-3 py-4 font-mono text-sm bg-transparent text-ink placeholder-ink-mute focus:outline-none tracking-widest"
-                />
-                <span className="font-mono text-2xs text-ink-mute pr-4">{vin.length}/17</span>
-              </div>
+          <form onSubmit={e => { e.preventDefault(); decode() }} className="flex gap-3 items-stretch">
+            <div className="vin-input-wrapper flex-1 flex items-center">
+              <span className="font-mono text-2xs text-ink-mute pl-4 select-none border-r border-paper-edge pr-3 mr-1">VIN</span>
+              <input
+                type="text" value={vin}
+                onChange={e => setVin(e.target.value.toUpperCase())}
+                placeholder="LGXCE4GB2M1234567"
+                maxLength={17}
+                className="flex-1 px-3 py-3 font-mono text-sm bg-transparent text-ink placeholder-ink-mute focus:outline-none tracking-widest"
+              />
+              <span className="font-mono text-2xs text-ink-mute pr-4">{vin.length}/17</span>
             </div>
-            <button type="submit" disabled={loading || vin.length < 5} className="btn-vermillion w-full justify-center">
-              {loading ? 'Scanning...' : 'Decode Chassis →'}
+            <button type="submit" disabled={loading || vin.length < 5} className="btn-vermillion shrink-0 disabled:opacity-40">
+              {loading ? 'Scanning...' : 'Decode →'}
             </button>
           </form>
 
-          {/* Sample VINs */}
-          <div className="flex gap-5 mt-5">
+          <div className="flex gap-5 mt-3">
             <span className="font-mono text-2xs text-ink-mute">Examples:</span>
             {['LGXCE4GB2M1234567', 'L8XAE4HB2M000001'].map(ex => (
               <button key={ex} onClick={() => { setVin(ex); decode(ex) }}
                 className="font-mono text-2xs text-ink-mute hover:text-vermillion underline underline-offset-2 transition-colors">{ex}</button>
             ))}
           </div>
-
-          {/* Scanning animation */}
-          <AnimatePresence>
-            {loading && scanChars.length > 0 && (
-              <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
-                className="mt-10 p-6 bg-paper-deep border border-paper-edge">
-                <div className="font-mono text-2xs text-ink-mute uppercase tracking-widest mb-5">Parsing VIN structure...</div>
-
-                <div className="flex flex-wrap gap-1.5 mb-5">
-                  {scanChars.map((c, i) => {
-                    const seg = segOf(i)
-                    return (
-                      <motion.div key={i}
-                        initial={{ opacity: 0, y: 4 }} animate={{ opacity: 1, y: 0 }}
-                        className="w-8 h-9 flex items-center justify-center border font-mono text-xs font-medium bg-white"
-                        style={{ borderColor: segColor[seg], color: segColor[seg] }}>
-                        {c}
-                      </motion.div>
-                    )
-                  })}
-                </div>
-
-                <div className="flex gap-6 font-mono text-2xs">
-                  {SEG_LABELS.map(s => (
-                    <span key={s.key} style={{ color: s.color }}>■ {s.label}</span>
-                  ))}
-                </div>
-              </motion.div>
-            )}
-          </AnimatePresence>
-
-          {error && (
-            <div className="mt-6 p-4 border border-paper-edge bg-paper-deep text-sm text-ink-soft">{error}</div>
-          )}
         </div>
+      </div>
 
-        {/* ── Right: Result panel ── */}
-        <div className="px-8 py-14 bg-paper-deep flex flex-col">
-          <div className="font-mono text-2xs text-ink-mute uppercase tracking-widest mb-6">Decode Result</div>
-
-          {!result && !loading && (
-            <div className="flex-1 flex flex-col items-center justify-center text-center">
-              <div className="seal w-12 h-12 opacity-10 text-xl mb-4" style={{ fontSize: 22 }}>配</div>
-              <p className="text-ink-mute text-sm">Enter a VIN to begin</p>
+      {/* ── Scanning animation ── */}
+      <AnimatePresence>
+        {loading && scanChars.length > 0 && (
+          <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+            className="border-b border-paper-edge bg-paper">
+            <div className="px-12 py-6" style={{ maxWidth: 1400, margin: '0 auto' }}>
+              <div className="font-mono text-2xs text-ink-mute uppercase tracking-widest mb-4">Parsing VIN structure...</div>
+              <div className="flex flex-wrap gap-1.5 mb-3">
+                {scanChars.map((c, i) => (
+                  <motion.div key={i} initial={{ opacity: 0, y: 4 }} animate={{ opacity: 1, y: 0 }}
+                    className="w-8 h-9 flex items-center justify-center border font-mono text-xs font-medium bg-white"
+                    style={{ borderColor: segColor[segOf(i)], color: segColor[segOf(i)] }}>{c}</motion.div>
+                ))}
+              </div>
+              <div className="flex gap-6 font-mono text-2xs">
+                {SEG_LABELS.map(s => <span key={s.key} style={{ color: s.color }}>■ {s.label}</span>)}
+              </div>
             </div>
-          )}
+          </motion.div>
+        )}
+      </AnimatePresence>
 
-          {/* Stamp-in animation then result */}
-          <AnimatePresence>
-            {stamped && (
-              <motion.div key="stamp" initial={{ opacity: 0 }} animate={{ opacity: 1 }}
-                className="flex justify-center mb-6">
-                <div className="stamp-in">
-                  <div className="w-14 h-14 rounded-full border-4 border-vermillion flex items-center justify-center"
-                    style={{ color: 'var(--vermillion)' }}>
-                    <span className="font-cjk text-lg font-bold">验</span>
-                  </div>
-                </div>
-              </motion.div>
-            )}
-          </AnimatePresence>
+      {error && (
+        <div className="px-12 py-4 border-b border-paper-edge">
+          <div className="text-sm text-ink-soft p-4 border border-paper-edge bg-paper-deep">{error}</div>
+        </div>
+      )}
 
-          <AnimatePresence>
-            {result && (
-              <motion.div key="result" initial={{ opacity: 0 }} animate={{ opacity: 1 }}
-                transition={{ duration: 0.2 }} className="space-y-5 data-fill">
+      {/* ── Result ── */}
+      <AnimatePresence>
+        {result && (
+          <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ duration: 0.2 }}>
 
-                {/* VIN breakdown */}
-                <div className="space-y-3">
-                  {SEG_LABELS.map(seg => {
-                    const val = result.vin[seg.key as keyof typeof result.vin] as string
-                    return (
-                      <div key={seg.key}>
-                        <div className="flex items-baseline justify-between mb-1">
-                          <span className="font-mono text-2xs uppercase tracking-widest" style={{ color: seg.color }}>{seg.label}</span>
-                          <span className="font-mono text-xs font-medium text-ink">{val}</span>
+            {/* Car banner */}
+            <div className="bg-paper-deep border-b border-paper-edge">
+              <div className="px-12 py-8" style={{ maxWidth: 1400, margin: '0 auto' }}>
+                <div className="flex items-end justify-between gap-8">
+                  <div>
+                    <div className="font-mono text-xs text-ink-mute uppercase tracking-widest mb-1">{result.carInfo.brand}</div>
+                    <h1 className="font-serif font-bold text-ink leading-none mb-4"
+                      style={{ fontSize: 'clamp(2rem, 4vw, 3.5rem)', letterSpacing: '-0.03em' }}>
+                      {result.carInfo.model}
+                    </h1>
+                    <div className="flex items-center gap-0">
+                      {[
+                        { val: result.carInfo.year.toString() },
+                        { val: result.carInfo.fuelType, cls: FUEL_CLASS[result.carInfo.fuelType] },
+                        { val: `${result.parts.length} parts`, cls: undefined },
+                        result.carInfo.epc ? { val: `EPC: ${result.carInfo.epc}`, cls: undefined } : null,
+                      ].filter(Boolean).map((item, i) => (
+                        <div key={i} className="flex items-center">
+                          {i > 0 && <div className="mx-4 h-3 w-px bg-paper-edge" />}
+                          {item!.cls
+                            ? <span className={`font-mono text-xs px-1.5 py-0.5 ${item!.cls}`}>{item!.val}</span>
+                            : <span className="font-mono text-sm text-ink-soft">{item!.val}</span>}
                         </div>
-                        <div className="text-xs text-ink-mute">{seg.sub}</div>
-                        <div className="rule mt-2" />
-                      </div>
-                    )
-                  })}
-                </div>
-
-                {/* Decoded facts */}
-                <div className="space-y-1 pt-1">
-                  {[
-                    { label: 'Brand',        val: result.vin.brand },
-                    { label: 'Manufacturer', val: result.vin.manufacturer },
-                    { label: 'Country',      val: result.vin.country },
-                    { label: 'Model Year',   val: result.vin.year?.toString() || '—' },
-                    { label: 'Confidence',   val: result.vin.confidence },
-                  ].map(row => (
-                    <div key={row.label} className="flex justify-between items-baseline py-1">
-                      <span className="font-mono text-2xs text-ink-mute uppercase tracking-wide">{row.label}</span>
-                      <span className="text-xs text-ink font-medium">{row.val}</span>
-                    </div>
-                  ))}
-                </div>
-
-                {/* AI summary */}
-                {result.aiSummary && (
-                  <div className="pt-4 border-t border-paper-edge">
-                    <div className="font-mono text-2xs text-ink-mute uppercase tracking-widest mb-2">Analysis</div>
-                    <p className="text-sm text-ink-soft leading-relaxed">{result.aiSummary}</p>
-                  </div>
-                )}
-
-                {/* Matched vehicles */}
-                {result.matchedVehicles.length > 0 && (
-                  <div className="pt-4 border-t border-paper-edge">
-                    <div className="font-mono text-2xs text-ink-mute uppercase tracking-widest mb-3">
-                      {result.matchedVehicles.length} match{result.matchedVehicles.length !== 1 ? 'es' : ''} in catalog
-                    </div>
-                    <div className="space-y-1">
-                      {result.matchedVehicles.map(v => (
-                        <button key={v.id} onClick={() => router.push(`/parts/${v.id}${partQuery ? `?q=${encodeURIComponent(partQuery)}` : ''}`)}
-                          className="w-full text-left flex items-center justify-between p-3 bg-white border border-paper-edge hover:border-vermillion transition-colors group">
-                          <div>
-                            <div className="text-sm font-medium text-ink">{v.brand.name} {v.model}</div>
-                            <div className="font-mono text-2xs text-ink-mute mt-0.5">{v.year} · {v.engine || v.fuelType}</div>
-                          </div>
-                          <span className="font-mono text-xs text-ink-mute group-hover:text-vermillion transition-colors">
-                            {v._count.parts} parts →
-                          </span>
-                        </button>
                       ))}
                     </div>
+                    {result.aiSummary && (
+                      <p className="text-sm text-ink-mute mt-3 max-w-xl leading-relaxed">{result.aiSummary}</p>
+                    )}
                   </div>
-                )}
 
-                {result.matchedVehicles.length === 0 && (
-                  <div className="pt-4 border-t border-paper-edge text-xs text-ink-mute">
-                    No exact catalog match — use AI Search to find parts by description.
+                  {/* VIN breakdown */}
+                  <div className="shrink-0 space-y-2 text-right hidden lg:block">
+                    {SEG_LABELS.map(seg => (
+                      <div key={seg.key} className="flex items-center gap-3 justify-end">
+                        <span className="font-mono text-2xs text-ink-mute">{seg.sub}</span>
+                        <span className="font-mono text-xs font-bold" style={{ color: seg.color }}>
+                          {result.vin[seg.key as keyof typeof result.vin] as string}
+                        </span>
+                      </div>
+                    ))}
                   </div>
-                )}
-              </motion.div>
-            )}
-          </AnimatePresence>
+                </div>
+              </div>
+            </div>
+
+            {/* Search + filter strip */}
+            <div className="border-b border-paper-edge sticky top-0 z-10 bg-paper">
+              <div className="px-12" style={{ maxWidth: 1400, margin: '0 auto' }}>
+                <div className="vin-input-wrapper flex items-center mt-4 mb-3">
+                  <span className="font-mono text-sm text-ink-mute pl-4 select-none">⌕</span>
+                  <input
+                    ref={searchRef}
+                    type="text" value={search}
+                    onChange={e => { setSearch(e.target.value); setSelectedCat(null) }}
+                    placeholder="Search by part name, OEM number, or 中文…"
+                    className="flex-1 px-4 py-3 text-sm bg-transparent text-ink placeholder-ink-mute focus:outline-none"
+                  />
+                  {search && (
+                    <button onClick={() => setSearch('')}
+                      className="font-mono text-xs text-ink-mute hover:text-vermillion px-4 transition-colors">✕</button>
+                  )}
+                </div>
+                <div className="cat-chips pb-0">
+                  <button onClick={() => setSelectedCat(null)} className={`cat-chip ${!selectedCat ? 'active' : ''}`}>
+                    All · {result.parts.length}
+                  </button>
+                  {categories.map(cat => {
+                    const count = result.parts.filter(p => p.category === cat.name).length
+                    return (
+                      <button key={cat.name} onClick={() => setSelectedCat(cat.name === selectedCat ? null : cat.name)}
+                        className={`cat-chip ${selectedCat === cat.name ? 'active' : ''}`}>
+                        {cat.name} · {count}
+                      </button>
+                    )
+                  })}
+                </div>
+              </div>
+            </div>
+
+            {/* Parts table */}
+            <div className="px-12 py-6" style={{ maxWidth: 1400, margin: '0 auto' }}>
+              {result.parts.length === 0 ? (
+                <div className="text-center py-20">
+                  <p className="text-ink-mute text-sm mb-2">No parts found for this VIN in the catalog.</p>
+                  <p className="text-ink-mute text-xs">Try a different VIN or use the AI Search on the homepage.</p>
+                </div>
+              ) : (
+                <>
+                  {/* Table header */}
+                  <div className="grid pb-2 border-b-2 border-paper-edge"
+                    style={{ gridTemplateColumns: '2fr 1.4fr 0.8fr auto' }}>
+                    <span className="font-mono text-2xs text-ink-mute uppercase tracking-widest">Part Name</span>
+                    <span className="font-mono text-2xs text-ink-mute uppercase tracking-widest">OEM Number</span>
+                    <span className="font-mono text-2xs text-ink-mute uppercase tracking-widest">Category</span>
+                    <span className="font-mono text-2xs text-ink-mute uppercase tracking-widest text-right">Copy</span>
+                  </div>
+
+                  {/* Matching section */}
+                  {search && filteredParts.matching.length > 0 && (
+                    <div className="flex items-center gap-3 pt-4 pb-2">
+                      <span className="font-mono text-2xs uppercase tracking-widest" style={{ color: 'var(--vermillion)' }}>
+                        配件搜索 · MATCHING &ldquo;{search.toUpperCase()}&rdquo;
+                      </span>
+                      <span className="font-mono text-2xs text-ink-mute">· {filteredParts.matching.length} found</span>
+                    </div>
+                  )}
+
+                  {filteredParts.matching.map(part => (
+                    <PartRow key={part.oemNumber || part.name} part={part}
+                      highlighted={!!search} copied={copiedOem === part.oemNumber}
+                      onCopy={() => doCopy(part.oemNumber)} />
+                  ))}
+
+                  {search && filteredParts.rest.length > 0 && (
+                    <div className="border-t-2 border-paper-edge mt-4 pt-4 pb-2 flex items-center gap-3">
+                      <span className="font-mono text-2xs text-ink-mute uppercase tracking-widest">其他配件 · ALL OTHER PARTS</span>
+                      <span className="font-mono text-2xs text-ink-mute">· {filteredParts.rest.length}</span>
+                    </div>
+                  )}
+
+                  {filteredParts.rest.map(part => (
+                    <PartRow key={part.oemNumber || part.name} part={part}
+                      highlighted={false} copied={copiedOem === part.oemNumber}
+                      onCopy={() => doCopy(part.oemNumber)} />
+                  ))}
+
+                  {filteredParts.matching.length === 0 && filteredParts.rest.length === 0 && search && (
+                    <div className="text-center py-16">
+                      <p className="text-sm text-ink-mute">No parts matching &ldquo;{search}&rdquo;</p>
+                      <button onClick={() => setSearch('')}
+                        className="font-mono text-xs text-ink-mute hover:text-vermillion underline mt-3 transition-colors">
+                        Clear search → browse all {result.parts.length} parts
+                      </button>
+                    </div>
+                  )}
+                </>
+              )}
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* Empty state */}
+      {!result && !loading && !error && (
+        <div className="flex flex-col items-center justify-center py-32 text-center px-12">
+          <div className="font-cjk text-5xl text-paper-edge mb-6">配</div>
+          <p className="text-ink-mute text-sm">Enter a VIN above to see all parts for that vehicle</p>
         </div>
-
-      </div>
+      )}
     </div>
+  )
+}
+
+function PartRow({ part, highlighted, copied, onCopy }: {
+  part: ApiPart; highlighted: boolean; copied: boolean; onCopy: () => void
+}) {
+  return (
+    <motion.div
+      layout initial={{ opacity: 0 }} animate={{ opacity: 1 }}
+      className="grid items-center border-b border-paper-edge"
+      style={{
+        gridTemplateColumns: '2fr 1.4fr 0.8fr auto',
+        borderLeft: highlighted ? '3px solid var(--vermillion)' : '3px solid transparent',
+      }}
+    >
+      <div className="py-3 pr-6">
+        {part.nameZh
+          ? <><div className="hanzi-primary">{part.nameZh}</div><div className="hanzi-secondary">{part.name}</div></>
+          : <div className="text-sm font-medium text-ink">{part.name}</div>
+        }
+      </div>
+      <div className="py-3 pr-6">
+        {part.oemNumber
+          ? <span className="oem-main">{part.oemNumber}</span>
+          : <span className="font-mono text-xs text-ink-mute">—</span>
+        }
+      </div>
+      <div className="py-3 pr-6">
+        <span className="font-mono text-2xs text-ink-mute uppercase tracking-wide">{part.category}</span>
+        <div className="font-cjk text-ink-mute mt-0.5" style={{ fontSize: '0.6rem' }}>{part.categoryZh}</div>
+      </div>
+      <div className="py-3 flex justify-end">
+        {part.oemNumber ? (
+          <button onClick={onCopy} className={`copy-btn${copied ? ' copied' : ''}`}>
+            {copied ? '已复制 ✓' : '复制 ⎘'}
+          </button>
+        ) : <span />}
+      </div>
+    </motion.div>
   )
 }
